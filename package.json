@@ -1,0 +1,33 @@
+{
+  "name": "ilo-fans-controller-go",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "NODE_OPTIONS='--no-deprecation' pnpm run build:css:watch & NODE_OPTIONS='--no-deprecation' pnpm run build:js -- --watch",
+    "build": "NODE_OPTIONS='--no-deprecation' pnpm run build:css && NODE_OPTIONS='--no-deprecation' pnpm run build:js",
+    "build:css": "NODE_OPTIONS='--no-deprecation' pnpm dlx @tailwindcss/cli -i ./assets/src/styles.css -o ./assets/dist/styles.css",
+    "build:css:watch": "NODE_OPTIONS='--no-deprecation' pnpm dlx @tailwindcss/cli -i ./assets/src/styles.css -o ./assets/dist/styles.css -w",
+    "build:js": "NODE_OPTIONS='--no-deprecation' node build.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.7.1",
+  "dependencies": {
+    "@tailwindcss/cli": "^4.1.18",
+    "@tiptap/core": "^2.11.7",
+    "@tiptap/pm": "^2.11.7",
+    "@tiptap/starter-kit": "^2.11.7",
+    "alpinejs": "^3.14.9",
+    "daisyui": "^5.0.28",
+    "flowbite": "^3.1.2",
+    "htmx.org": "^2.0.4",
+    "hyperscript.org": "^0.9.14",
+    "tailwindcss": "^4.1.18"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.2"
+  }
+}

@@ -1,0 +1,57 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  GREETING: Hello, World!
+
+tasks:
+  default:
+    cmds:
+      - task: dev
+    silent: true
+
+  dev:
+    desc: Run both Go and frontend development servers
+    cmds:
+      - task: docker:up
+      - task: dev:go
+      - task: dev:frontend
+
+  dev:go:
+    desc: Run Go development server with air
+    cmds:
+      - air -c .air.toml
+
+  dev:frontend:
+    desc: Run frontend development server
+    cmds:
+      - pnpm run dev
+
+  build:
+    desc: Build both Go and frontend
+    cmds:
+      - task: build:frontend
+      - go build -o bin/app
+
+  build:frontend:
+    desc: Build frontend assets
+    cmds:
+      - pnpm run build
+
+  docker:up:
+    desc: Start Docker Compose services
+    cmds:
+      - docker compose up -d
+    status:
+      - docker compose ps --format json | grep -q "running"
+
+  docker:down:
+    desc: Stop Docker Compose services
+    cmds:
+      - docker compose down
+
+  docker:logs:
+    desc: Show Docker Compose logs
+    cmds:
+      - docker compose logs -f

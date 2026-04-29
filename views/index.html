@@ -1,0 +1,208 @@
+<section x-data="fanController()" class="app-shell w-full">
+    <script>
+        window.__APP_DATA__ = {
+            fans: {{safeJS .InitialFansJSON}},
+            presets: {{safeJS .InitialPresetsJSON}},
+            minimumFanSpeed: {{.MinimumFanSpeed}},
+            status: {{safeJS .InitialStatusJSON}}
+        };
+    </script>
+
+    <div class="flex items-start justify-between gap-4">
+        <div class="flex items-start gap-4 sm:gap-5">
+            <a href="#" class="logo-link" aria-label="Open iLO">
+                <svg viewBox="0 0 120 48" fill="none" xmlns="http://www.w3.org/2000/svg" class="h-7 w-14 sm:h-8 sm:w-16">
+                    <rect x="6" y="10" width="108" height="28" rx="2" stroke="currentColor" stroke-width="8"/>
+                </svg>
+            </a>
+            <div>
+                <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:gap-3">
+                    <h1 class="text-3xl font-bold tracking-tight text-base-content sm:text-4xl">iLO Fans Controller</h1>
+                    <span class="version-pill">v1.0.0</span>
+                </div>
+                <p class="mt-1 text-sm italic text-base-content/60">
+                    by <a href="https://github.com/rogafe" target="_blank" class="font-medium text-base-content/70 transition hover:text-base-content">rogafe</a> based on <a href="https://github.com/alex3025/ilo-fans-controller" target="_blank" class="font-medium text-base-content/70 transition hover:text-base-content">alex3025/ilo-fans-controller</a>
+                </p>
+            </div>
+        </div>
+
+        <button
+            type="button"
+            class="theme-switch"
+            @click="cycleTheme()"
+            :aria-label="`Switch theme, current mode ${theme}`"
+        >
+            <template x-if="theme === 'light'">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                </svg>
+            </template>
+            <template x-if="theme === 'dark'">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z" />
+                </svg>
+            </template>
+        </button>
+    </div>
+
+    <div x-cloak x-show="status" class="mt-6">
+        <div class="status-banner" :class="status?.type === 'error' ? 'status-banner-error' : 'status-banner-success'">
+            <span x-text="status?.message"></span>
+        </div>
+    </div>
+
+    <div class="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div class="flex items-center gap-2 text-base font-medium text-base-content/45">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5">
+                <path fill-rule="evenodd" d="M18 10A8 8 0 1 1 2 10a8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clip-rule="evenodd" />
+            </svg>
+            <span>Presets:</span>
+        </div>
+
+        <div class="flex flex-1 flex-wrap gap-2.5">
+            <template x-for="(preset, index) in presets" :key="preset.name">
+                <button
+                    type="button"
+                    class="outline-button min-w-[8rem] flex-1 px-4 py-2 text-sm font-medium sm:flex-none"
+                    :class="currentPreset === index ? 'outline-button-active' : ''"
+                    @click="applyPreset(index)"
+                >
+                    <span x-text="preset.name"></span>
+                </button>
+            </template>
+
+            <button type="button" class="add-preset-button" @click="newPreset()" aria-label="Add preset">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5">
+                    <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="mt-8 flex items-center justify-between gap-4">
+        <h2 class="text-3xl font-bold tracking-tight text-base-content">Fans</h2>
+
+        <label class="flex items-center gap-3 text-sm font-medium text-base-content/55">
+            <span>Edit all</span>
+            <button
+                type="button"
+                class="toggle-shell"
+                :class="editAll ? 'toggle-shell-active' : ''"
+                @click="editAll = !editAll"
+                :aria-pressed="editAll"
+                :disabled="fans.length === 0"
+            >
+                <span class="toggle-thumb" :class="editAll ? 'toggle-thumb-active' : ''"></span>
+            </button>
+        </label>
+    </div>
+
+    <div class="mt-6 space-y-6">
+        <template x-for="(fan, index) in fans" :key="fan.name">
+            <div class="fan-row">
+                <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
+                    <div class="w-16 shrink-0 text-xl font-semibold text-base-content/72" x-text="fan.name"></div>
+
+                    <input
+                        type="range"
+                        :min="minimumFanSpeed"
+                        max="100"
+                        class="fan-slider"
+                        :value="fan.speed"
+                        @input="updateFanSpeed(index, Number($event.target.value))"
+                        :disabled="isLoading || fans.length === 0"
+                    >
+
+                    <div class="flex items-center gap-3 sm:gap-4">
+                        <input
+                            type="number"
+                            :min="minimumFanSpeed"
+                            max="100"
+                            class="fan-input"
+                            :value="fan.speed"
+                            @input="updateFanSpeed(index, Number($event.target.value))"
+                            :disabled="isLoading || fans.length === 0"
+                        >
+                        <button
+                            type="button"
+                            class="outline-button px-3 py-1.5 text-sm font-semibold"
+                            :disabled="fan.speed === fan.originalSpeed"
+                            @click="resetFan(index)"
+                        >Reset</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <div class="mt-8 space-y-4">
+        <div class="flex items-center justify-between gap-4">
+            <h3 class="text-xl font-semibold text-base-content">Console</h3>
+            <span class="console-badge" :class="socketConnected ? 'console-badge-connected' : 'console-badge-disconnected'">
+                <span x-text="socketConnected ? 'Connected' : 'Disconnected'"></span>
+            </span>
+        </div>
+
+        <div class="console-panel">
+            <div class="console-section">
+                <p class="console-label">Pending commands</p>
+                <template x-if="getPendingCommands().length === 0">
+                    <p class="console-empty">No pending commands.</p>
+                </template>
+                <template x-if="getPendingCommands().length > 0">
+                    <div class="console-lines">
+                        <template x-for="command in getPendingCommands()" :key="command">
+                            <p class="console-line">
+                                <span class="console-prefix">$</span>
+                                <span x-text="command"></span>
+                            </p>
+                        </template>
+                    </div>
+                </template>
+            </div>
+
+            <div class="console-divider"></div>
+
+            <div class="console-section">
+                <p class="console-label">Live output</p>
+                <template x-if="consoleLines.length === 0">
+                    <p class="console-empty">No console output yet.</p>
+                </template>
+                <template x-if="consoleLines.length > 0">
+                    <div class="console-lines max-h-56 overflow-y-auto">
+                        <template x-for="(line, index) in consoleLines" :key="`${line.timestamp}-${index}`">
+                            <p class="console-line">
+                                <span class="console-timestamp" x-text="`[${formatConsoleTimestamp(line.timestamp)}]`"></span>
+                                <span class="console-type" x-text="line.type"></span>
+                                <span x-text="line.message"></span>
+                            </p>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-10 flex flex-col items-center gap-4">
+        <button type="button" class="apply-button w-full sm:w-[16rem]" @click="applySpeeds()" :disabled="isLoading || fans.length === 0">
+            <template x-if="!isLoading">
+                <span class="inline-flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-5 w-5">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd" />
+                    </svg>
+                    <span>Set speeds</span>
+                </span>
+            </template>
+            <template x-if="isLoading">
+                <span class="inline-flex items-center gap-2">
+                    <span class="loading loading-spinner loading-sm"></span>
+                    <span>Applying...</span>
+                </span>
+            </template>
+        </button>
+
+        <p x-cloak x-show="requestTime !== null" class="font-mono text-sm text-base-content/40">
+            Executed in <span x-text="formatRequestTime()"></span>
+        </p>
+    </div>
+</section>
