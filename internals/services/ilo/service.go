@@ -45,14 +45,37 @@ type thermalResponse struct {
 			State string `json:"State"`
 		} `json:"Status"`
 	} `json:"Fans"`
+	Temperatures []struct {
+		Name                string `json:"Name"`
+		Number              int    `json:"Number"`
+		ReadingCelsius      int    `json:"ReadingCelsius"`
+		PhysicalContext     string `json:"PhysicalContext"`
+		UpperThresholdWarn  int    `json:"UpperThresholdNonCritical"`
+		UpperThresholdCrit  int    `json:"UpperThresholdCritical"`
+		UpperThresholdFatal int    `json:"UpperThresholdFatal"`
+		Status              struct {
+			Health string `json:"Health"`
+			State  string `json:"State"`
+		} `json:"Status"`
+		Oem struct {
+			Hp struct {
+				LocationXmm int `json:"LocationXmm"`
+				LocationYmm int `json:"LocationYmm"`
+			} `json:"Hp"`
+		} `json:"Oem"`
+	} `json:"Temperatures"`
 }
 
 var trailingNumberPattern = regexp.MustCompile(`(\d+)\s*$`)
 
 const (
-	temperatureLocaleOID = ".1.3.6.1.4.1.232.6.2.6.8.1.3"
-	temperatureValueOID  = ".1.3.6.1.4.1.232.6.2.6.8.1.4"
-	temperatureLabelOID  = ".1.3.6.1.4.1.232.6.2.6.8.1.8"
+	temperatureChassisOID       = ".1.3.6.1.4.1.232.6.2.6.8.1.1"
+	temperatureIndexOID         = ".1.3.6.1.4.1.232.6.2.6.8.1.2"
+	temperatureLocaleOID        = ".1.3.6.1.4.1.232.6.2.6.8.1.3"
+	temperatureValueOID         = ".1.3.6.1.4.1.232.6.2.6.8.1.4"
+	temperatureThresholdOID     = ".1.3.6.1.4.1.232.6.2.6.8.1.5"
+	temperatureConditionOID     = ".1.3.6.1.4.1.232.6.2.6.8.1.6"
+	temperatureThresholdTypeOID = ".1.3.6.1.4.1.232.6.2.6.8.1.7"
 )
 
 func New(cfg config.Config, hub *console.Hub) Service {
@@ -137,6 +160,8 @@ func (s *service) GetTemperatures(ctx context.Context) ([]models.Temperature, er
 		return nil, fmt.Errorf("iLO SNMP is not configured")
 	}
 
+	redfishTemperatures, redfishErr := s.getRedfishTemperatures(ctx)
+
 	client := gosnmp.GoSNMP{
 		Target:    s.cfg.ILOSNMPHost,
 		Port:      s.cfg.ILOSNMPPort,
@@ -153,7 +178,20 @@ func (s *service) GetTemperatures(ctx context.Context) ([]models.Temperature, er
 	defer client.Conn.Close()
 
 	temperaturesByIndex := make(map[int]*models.Temperature)
-	for _, rootOID := range []string{temperatureLocaleOID, temperatureLabelOID, temperatureValueOID} {
+	for index, temperature := range redfishTemperatures {
+		copy := temperature
+		temperaturesByIndex[index] = &copy
+	}
+
+	for _, rootOID := range []string{
+		temperatureChassisOID,
+		temperatureIndexOID,
+		temperatureLocaleOID,
+		temperatureValueOID,
+		temperatureThresholdOID,
+		temperatureConditionOID,
+		temperatureThresholdTypeOID,
+	} {
 		packets, err := client.WalkAll(rootOID)
 		if err != nil {
 			return nil, err
@@ -174,17 +212,46 @@ func (s *service) GetTemperatures(ctx context.Context) ([]models.Temperature, er
 			switch rootOID {
 			case temperatureLocaleOID:
 				temperature.Locale = int(gosnmp.ToBigInt(packet.Value).Int64())
-			case temperatureLabelOID:
-				temperature.Label = strings.TrimSpace(asString(packet.Value))
+				temperature.LocaleLabel = temperatureLocaleLabel(temperature.Locale)
 			case temperatureValueOID:
 				temperature.Temperature = int(gosnmp.ToBigInt(packet.Value).Int64())
+			case temperatureChassisOID:
+				temperature.Chassis = int(gosnmp.ToBigInt(packet.Value).Int64())
+			case temperatureIndexOID:
+				temperature.Index = int(gosnmp.ToBigInt(packet.Value).Int64())
+			case temperatureThresholdOID:
+				temperature.Threshold = int(gosnmp.ToBigInt(packet.Value).Int64())
+			case temperatureConditionOID:
+				temperature.Condition = int(gosnmp.ToBigInt(packet.Value).Int64())
+				temperature.ConditionLabel = temperatureConditionLabel(temperature.Condition)
+			case temperatureThresholdTypeOID:
+				temperature.ThresholdType = int(gosnmp.ToBigInt(packet.Value).Int64())
+				temperature.ThresholdTypeLabel = temperatureThresholdTypeLabel(temperature.ThresholdType)
 			}
 		}
 	}
 
 	temperatures := make([]models.Temperature, 0, len(temperaturesByIndex))
 	for _, temperature := range temperaturesByIndex {
-		if temperature.Label == "" && temperature.Temperature == 0 {
+		if temperature.LocaleLabel == "" {
+			temperature.LocaleLabel = temperatureLocaleLabel(temperature.Locale)
+		}
+		if temperature.ConditionLabel == "" {
+			temperature.ConditionLabel = temperatureConditionLabel(temperature.Condition)
+		}
+		if temperature.ThresholdTypeLabel == "" {
+			temperature.ThresholdTypeLabel = temperatureThresholdTypeLabel(temperature.ThresholdType)
+		}
+		if temperature.Label == "" {
+			temperature.Label = fmt.Sprintf("Sensor %02d", temperature.Index)
+		}
+		if !temperature.Present {
+			temperature.Present = !strings.EqualFold(strings.TrimSpace(temperature.State), "Absent")
+		}
+		if !temperature.Present {
+			continue
+		}
+		if temperature.Temperature == 0 && temperature.Condition == 0 && redfishErr != nil {
 			continue
 		}
 
@@ -196,6 +263,58 @@ func (s *service) GetTemperatures(ctx context.Context) ([]models.Temperature, er
 	})
 
 	return temperatures, nil
+}
+
+func (s *service) getRedfishTemperatures(ctx context.Context) (map[int]models.Temperature, error) {
+	if !s.cfg.HasILOConfig() {
+		return map[int]models.Temperature{}, nil
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://%s/redfish/v1/chassis/1/Thermal/", s.cfg.ILOHost), nil)
+	if err != nil {
+		return nil, err
+	}
+	request.SetBasicAuth(s.cfg.ILOUsername, s.cfg.ILOPassword)
+
+	response, err := s.httpClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		return nil, fmt.Errorf("iLO Redfish request failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var thermal thermalResponse
+	if err := json.NewDecoder(response.Body).Decode(&thermal); err != nil {
+		return nil, err
+	}
+
+	result := make(map[int]models.Temperature, len(thermal.Temperatures))
+	for _, temperature := range thermal.Temperatures {
+		name := strings.TrimSpace(temperature.Name)
+		if name == "" {
+			name = fmt.Sprintf("Sensor %02d", temperature.Number)
+		}
+
+		result[temperature.Number] = models.Temperature{
+			Index:             temperature.Number,
+			Label:             name,
+			PhysicalContext:   strings.TrimSpace(temperature.PhysicalContext),
+			Temperature:       temperature.ReadingCelsius,
+			Health:            strings.TrimSpace(temperature.Status.Health),
+			State:             strings.TrimSpace(temperature.Status.State),
+			CautionThreshold:  maxInt(temperature.UpperThresholdWarn, temperature.UpperThresholdCrit),
+			CriticalThreshold: temperature.UpperThresholdFatal,
+			LocationX:         temperature.Oem.Hp.LocationXmm,
+			LocationY:         temperature.Oem.Hp.LocationYmm,
+			Present:           !strings.EqualFold(strings.TrimSpace(temperature.Status.State), "Absent"),
+		}
+	}
+
+	return result, nil
 }
 
 func (s *service) SetFans(ctx context.Context, request models.SetFansRequest) ([]models.Fan, error) {
@@ -434,4 +553,78 @@ func asString(value any) string {
 	default:
 		return fmt.Sprint(value)
 	}
+}
+
+func temperatureLocaleLabel(locale int) string {
+	switch locale {
+	case 1:
+		return "Other"
+	case 2:
+		return "Unknown"
+	case 3:
+		return "System"
+	case 4:
+		return "System Board"
+	case 5:
+		return "I/O Board"
+	case 6:
+		return "CPU"
+	case 7:
+		return "Memory"
+	case 8:
+		return "Storage"
+	case 9:
+		return "Removable Media"
+	case 10:
+		return "Power Supply"
+	case 11:
+		return "Ambient"
+	case 12:
+		return "Chassis"
+	case 13:
+		return "Bridge Card"
+	default:
+		return ""
+	}
+}
+
+func temperatureConditionLabel(condition int) string {
+	switch condition {
+	case 1:
+		return "Other"
+	case 2:
+		return "OK"
+	case 3:
+		return "Degraded"
+	case 4:
+		return "Failed"
+	default:
+		return ""
+	}
+}
+
+func temperatureThresholdTypeLabel(thresholdType int) string {
+	switch thresholdType {
+	case 1:
+		return "Other"
+	case 5:
+		return "Blowout"
+	case 9:
+		return "Caution"
+	case 15:
+		return "Critical"
+	default:
+		return ""
+	}
+}
+
+func maxInt(values ...int) int {
+	max := 0
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+
+	return max
 }

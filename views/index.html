@@ -222,7 +222,7 @@
         </div>
 
         <!-- Right panel: Temperatures + Console -->
-        <div class="flex flex-col gap-4 lg:w-80 xl:w-96">
+        <div class="flex flex-col gap-4 lg:w-[34rem] xl:w-[42rem]">
 
             <!-- Temperatures card -->
             <div class="card bg-base-100 shadow-md">
@@ -237,20 +237,76 @@
                         <div class="badge badge-ghost badge-sm font-mono" x-text="`${temperatures.length} sensors`"></div>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-2">
+                    <div class="hidden lg:block overflow-x-auto">
+                        <table class="table table-zebra table-sm">
+                            <thead>
+                                <tr class="text-[11px] uppercase tracking-wider text-base-content/50">
+                                    <th>Sensor</th>
+                                    <th>Location</th>
+                                    <th>Status</th>
+                                    <th class="text-right">Reading</th>
+                                    <th>Thresholds</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="temperature in temperatures" :key="temperature.index">
+                                    <tr>
+                                        <td class="min-w-[12rem]">
+                                            <div class="flex flex-col gap-1">
+                                                <span class="font-semibold" x-text="formatTemperatureName(temperature)"></span>
+                                                <div class="flex flex-wrap items-center gap-2 text-[11px] text-base-content/45">
+                                                    <span class="font-mono" x-text="`#${String(temperature.index).padStart(2, '0')}`"></span>
+                                                    <span x-show="hasTemperatureCoordinates(temperature)" x-text="`x:${temperature.locationX} y:${temperature.locationY}`"></span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="text-xs text-base-content/70" x-text="formatTemperatureLocation(temperature)"></td>
+                                        <td>
+                                            <span class="badge badge-sm"
+                                                  :class="temperatureTone(temperature) === 'error' ? 'badge-error badge-outline' : temperatureTone(temperature) === 'warning' ? 'badge-warning badge-outline' : temperatureTone(temperature) === 'ghost' ? 'badge-ghost' : 'badge-success badge-outline'"
+                                                  x-text="formatTemperatureStatus(temperature)"></span>
+                                        </td>
+                                        <td class="text-right">
+                                            <span class="font-mono font-semibold"
+                                                  :class="temperatureTone(temperature) === 'error' ? 'text-error' : temperatureTone(temperature) === 'warning' ? 'text-warning' : 'text-success'"
+                                                  x-text="`${temperature.temperature}C`"></span>
+                                        </td>
+                                        <td class="text-xs text-base-content/70" x-text="formatTemperatureThresholds(temperature)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="grid gap-2 lg:hidden">
                         <template x-for="temperature in temperatures" :key="temperature.index">
-                            <div class="rounded-xl border p-3 transition-colors"
-                                 :class="temperature.temperature > 75 ? 'border-error/30 bg-error/5' : temperature.temperature > 50 ? 'border-warning/30 bg-warning/5' : 'border-success/30 bg-success/5'">
-                                <p class="text-xs font-medium text-base-content/40" x-text="`Sensor ${temperature.index}`"></p>
-                                <p class="mt-1 truncate text-xs font-semibold text-base-content/70" x-text="temperature.label || `Sensor ${temperature.index}`"></p>
-                                <p class="mt-2 font-mono text-xl font-bold"
-                                   :class="temperature.temperature > 75 ? 'text-error' : temperature.temperature > 50 ? 'text-warning' : 'text-success'"
-                                   x-text="`${temperature.temperature}°`"></p>
+                            <div class="rounded-xl border p-3"
+                                 :class="temperatureTone(temperature) === 'error' ? 'border-error/30 bg-error/5' : temperatureTone(temperature) === 'warning' ? 'border-warning/30 bg-warning/5' : 'border-success/30 bg-success/5'">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-semibold" x-text="formatTemperatureName(temperature)"></p>
+                                        <p class="mt-1 text-xs text-base-content/55" x-text="formatTemperatureLocation(temperature)"></p>
+                                    </div>
+                                    <span class="badge badge-sm shrink-0"
+                                          :class="temperatureTone(temperature) === 'error' ? 'badge-error badge-outline' : temperatureTone(temperature) === 'warning' ? 'badge-warning badge-outline' : temperatureTone(temperature) === 'ghost' ? 'badge-ghost' : 'badge-success badge-outline'"
+                                          x-text="formatTemperatureStatus(temperature)"></span>
+                                </div>
+
+                                <div class="mt-3 flex items-end justify-between gap-3">
+                                    <div>
+                                        <p class="text-[11px] uppercase tracking-wider text-base-content/40">Thresholds</p>
+                                        <p class="text-xs text-base-content/65" x-text="formatTemperatureThresholds(temperature)"></p>
+                                    </div>
+                                    <p class="font-mono text-xl font-bold"
+                                       :class="temperatureTone(temperature) === 'error' ? 'text-error' : temperatureTone(temperature) === 'warning' ? 'text-warning' : 'text-success'"
+                                       x-text="`${temperature.temperature}C`"></p>
+                                </div>
                             </div>
                         </template>
-                        <div x-show="temperatures.length === 0" class="col-span-2 py-8 text-center text-sm text-base-content/40">
-                            No sensors detected.
-                        </div>
+                    </div>
+
+                    <div x-show="temperatures.length === 0" class="py-8 text-center text-sm text-base-content/40">
+                        No sensors detected.
                     </div>
                 </div>
             </div>

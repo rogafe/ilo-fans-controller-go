@@ -305,6 +305,86 @@ document.addEventListener('alpine:init', () => {
       return new Date(timestamp).toLocaleTimeString();
     },
 
+    formatTemperatureName(temperature) {
+      const label = temperature?.label?.trim();
+      return label || `Sensor ${String(temperature.index).padStart(2, '0')}`;
+    },
+
+    formatTemperatureLocation(temperature) {
+      const physicalContext = this.humanizeTemperatureToken(temperature?.physicalContext);
+      const localeLabel = temperature?.localeLabel?.trim();
+
+      if (physicalContext && localeLabel && physicalContext !== localeLabel) {
+        return `${physicalContext} · ${localeLabel}`;
+      }
+
+      return physicalContext || localeLabel || 'Unknown';
+    },
+
+    formatTemperatureThresholds(temperature) {
+      const thresholds = [];
+
+      if (temperature.cautionThreshold > 0) {
+        thresholds.push(`Caution ${temperature.cautionThreshold}C`);
+      }
+
+      if (temperature.criticalThreshold > 0) {
+        thresholds.push(`Critical ${temperature.criticalThreshold}C`);
+      }
+
+      if (thresholds.length > 0) {
+        return thresholds.join(' / ');
+      }
+
+      if (temperature.threshold > 0) {
+        const thresholdType = temperature.thresholdTypeLabel || 'Threshold';
+        return `${thresholdType} ${temperature.threshold}C`;
+      }
+
+      return 'N/A';
+    },
+
+    formatTemperatureStatus(temperature) {
+      if (temperature?.state === 'Absent') {
+        return 'Absent';
+      }
+
+      return temperature?.health || temperature?.conditionLabel || 'Unknown';
+    },
+
+    hasTemperatureCoordinates(temperature) {
+      return Boolean(temperature?.physicalContext) || temperature?.locationX !== 0 || temperature?.locationY !== 0;
+    },
+
+    temperatureTone(temperature) {
+      const status = `${temperature?.health || ''} ${temperature?.conditionLabel || ''} ${temperature?.state || ''}`.toLowerCase();
+
+      if (status.includes('absent')) {
+        return 'ghost';
+      }
+
+      if (status.includes('critical') || status.includes('failed')) {
+        return 'error';
+      }
+
+      if (status.includes('degraded') || status.includes('warning') || status.includes('caution')) {
+        return 'warning';
+      }
+
+      return 'success';
+    },
+
+    humanizeTemperatureToken(value) {
+      if (!value) {
+        return '';
+      }
+
+      return String(value)
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/[_-]+/g, ' ')
+        .trim();
+    },
+
     getPendingCommands() {
       return this.fans.flatMap((fan, index) => {
         if (fan.speed === fan.originalSpeed) {

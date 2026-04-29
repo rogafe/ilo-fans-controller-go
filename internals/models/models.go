@@ -9,10 +9,25 @@ type Fan struct {
 }
 
 type Temperature struct {
-	Index       int    `json:"index"`
-	Locale      int    `json:"locale"`
-	Label       string `json:"label"`
-	Temperature int    `json:"temperature"`
+	Chassis            int    `json:"chassis"`
+	Index              int    `json:"index"`
+	Locale             int    `json:"locale"`
+	LocaleLabel        string `json:"localeLabel"`
+	Label              string `json:"label"`
+	PhysicalContext    string `json:"physicalContext"`
+	Temperature        int    `json:"temperature"`
+	Threshold          int    `json:"threshold"`
+	ThresholdType      int    `json:"thresholdType"`
+	ThresholdTypeLabel string `json:"thresholdTypeLabel"`
+	Condition          int    `json:"condition"`
+	ConditionLabel     string `json:"conditionLabel"`
+	Health             string `json:"health"`
+	State              string `json:"state"`
+	CautionThreshold   int    `json:"cautionThreshold"`
+	CriticalThreshold  int    `json:"criticalThreshold"`
+	LocationX          int    `json:"locationX"`
+	LocationY          int    `json:"locationY"`
+	Present            bool   `json:"present"`
 }
 
 type Preset struct {
