@@ -36,6 +36,7 @@ func New(cfg config.Config, hub *console.Hub, iloService ilo.Service, presetServ
 func (h *Handler) GetIndex(c *fiber.Ctx) error {
 	status := (*models.StatusMessage)(nil)
 	fans := []models.Fan{}
+	temperatures := []models.Temperature{}
 	presets := []models.Preset{}
 
 	if h.cfg.HasILOConfig() {
@@ -50,6 +51,18 @@ func (h *Handler) GetIndex(c *fiber.Ctx) error {
 		status = &models.StatusMessage{Type: "error", Message: "iLO credentials are not configured yet. Set ILO_HOST, ILO_USERNAME, and ILO_PASSWORD to enable live fan control."}
 	}
 
+	if h.cfg.HasILOSNMPConfig() {
+		loadedTemperatures, err := h.iloService.GetTemperatures(c.UserContext())
+		if err != nil {
+			log.Printf("unable to fetch temperatures for page render: %v", err)
+			if status == nil {
+				status = &models.StatusMessage{Type: "error", Message: "Unable to load SNMP temperatures right now."}
+			}
+		} else {
+			temperatures = loadedTemperatures
+		}
+	}
+
 	loadedPresets, err := h.presetService.List(c.UserContext())
 	if err != nil {
 		log.Printf("unable to fetch presets for page render: %v", err)
@@ -61,11 +74,12 @@ func (h *Handler) GetIndex(c *fiber.Ctx) error {
 	}
 
 	return c.Render("index", fiber.Map{
-		"InitialFansJSON":    mustJSON(fans),
-		"InitialPresetsJSON": mustJSON(presets),
-		"InitialStatusJSON":  mustJSON(status),
-		"MinimumFanSpeed":    h.cfg.MinimumFanSpeed,
-		"PageTitle":          "iLO Fans Controller",
+		"InitialFansJSON":         mustJSON(fans),
+		"InitialTemperaturesJSON": mustJSON(temperatures),
+		"InitialPresetsJSON":      mustJSON(presets),
+		"InitialStatusJSON":       mustJSON(status),
+		"MinimumFanSpeed":         h.cfg.MinimumFanSpeed,
+		"PageTitle":               "iLO Fans Controller",
 	})
 }
 
@@ -105,6 +119,20 @@ func (h *Handler) SetFans(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fans)
+}
+
+func (h *Handler) GetTemperatures(c *fiber.Ctx) error {
+	if !h.cfg.HasILOSNMPConfig() {
+		return writeJSONError(c, fiber.StatusBadRequest, "iLO SNMP is not configured")
+	}
+
+	temperatures, err := h.iloService.GetTemperatures(c.UserContext())
+	if err != nil {
+		log.Printf("unable to fetch temperatures: %v", err)
+		return writeJSONError(c, fiber.StatusBadGateway, "Unable to fetch temperatures from iLO SNMP")
+	}
+
+	return c.JSON(temperatures)
 }
 
 func (h *Handler) ConsoleWebSocket(conn *websocket.Conn) {

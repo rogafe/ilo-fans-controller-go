@@ -9,10 +9,13 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gosnmp/gosnmp"
 	"golang.org/x/crypto/ssh"
 
 	"ilo-fans-controller-go/internals/config"
@@ -22,6 +25,7 @@ import (
 
 type Service interface {
 	GetFans(context.Context) ([]models.Fan, error)
+	GetTemperatures(context.Context) ([]models.Temperature, error)
 	SetFans(context.Context, models.SetFansRequest) ([]models.Fan, error)
 }
 
@@ -35,9 +39,21 @@ type service struct {
 type thermalResponse struct {
 	Fans []struct {
 		FanName        string `json:"FanName"`
+		MemberID       string `json:"MemberId"`
 		CurrentReading int    `json:"CurrentReading"`
+		Status         struct {
+			State string `json:"State"`
+		} `json:"Status"`
 	} `json:"Fans"`
 }
+
+var trailingNumberPattern = regexp.MustCompile(`(\d+)\s*$`)
+
+const (
+	temperatureLocaleOID = ".1.3.6.1.4.1.232.6.2.6.8.1.3"
+	temperatureValueOID  = ".1.3.6.1.4.1.232.6.2.6.8.1.4"
+	temperatureLabelOID  = ".1.3.6.1.4.1.232.6.2.6.8.1.8"
+)
 
 func New(cfg config.Config, hub *console.Hub) Service {
 	return &service{
@@ -50,10 +66,16 @@ func New(cfg config.Config, hub *console.Hub) Service {
 			},
 		},
 		sshConfig: &ssh.ClientConfig{
-			User:            cfg.ILOUsername,
-			Auth:            []ssh.AuthMethod{ssh.Password(cfg.ILOPassword)},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         10 * time.Second,
+			User:              cfg.ILOUsername,
+			Auth:              []ssh.AuthMethod{ssh.Password(cfg.ILOPassword)},
+			HostKeyCallback:   ssh.InsecureIgnoreHostKey(),
+			HostKeyAlgorithms: cfg.ILOSSHHostKeyAlgos,
+			Config: ssh.Config{
+				KeyExchanges: cfg.ILOSSHKexAlgos,
+				Ciphers:      cfg.ILOSSHCiphers,
+				MACs:         cfg.ILOSSHMACs,
+			},
+			Timeout: 10 * time.Second,
 		},
 	}
 }
@@ -86,19 +108,94 @@ func (s *service) GetFans(ctx context.Context) ([]models.Fan, error) {
 	}
 
 	fans := make([]models.Fan, 0, len(thermal.Fans))
-	for index, fan := range thermal.Fans {
+	for _, fan := range thermal.Fans {
+		if strings.EqualFold(strings.TrimSpace(fan.Status.State), "Absent") {
+			continue
+		}
+
+		commandNumber, err := parseFanCommandNumber(fan.MemberID, fan.FanName)
+		if err != nil {
+			return nil, err
+		}
+
 		fans = append(fans, models.Fan{
-			Name:  fan.FanName,
-			Speed: fan.CurrentReading,
-			Index: index,
+			Name:          fan.FanName,
+			Speed:         fan.CurrentReading,
+			CommandNumber: commandNumber,
 		})
 	}
 
 	sort.Slice(fans, func(i, j int) bool {
-		return fans[i].Index < fans[j].Index
+		return fans[i].CommandNumber < fans[j].CommandNumber
 	})
 
 	return fans, nil
+}
+
+func (s *service) GetTemperatures(ctx context.Context) ([]models.Temperature, error) {
+	if !s.cfg.HasILOSNMPConfig() {
+		return nil, fmt.Errorf("iLO SNMP is not configured")
+	}
+
+	client := gosnmp.GoSNMP{
+		Target:    s.cfg.ILOSNMPHost,
+		Port:      s.cfg.ILOSNMPPort,
+		Community: s.cfg.ILOSNMPCommunity,
+		Version:   snmpVersion(s.cfg.ILOSNMPVersion),
+		Timeout:   time.Duration(s.cfg.ILOSNMPTimeoutSeconds) * time.Second,
+		Retries:   s.cfg.ILOSNMPRetries,
+		Context:   ctx,
+	}
+
+	if err := client.Connect(); err != nil {
+		return nil, err
+	}
+	defer client.Conn.Close()
+
+	temperaturesByIndex := make(map[int]*models.Temperature)
+	for _, rootOID := range []string{temperatureLocaleOID, temperatureLabelOID, temperatureValueOID} {
+		packets, err := client.WalkAll(rootOID)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, packet := range packets {
+			index, ok := snmpIndex(packet.Name)
+			if !ok {
+				continue
+			}
+
+			temperature := temperaturesByIndex[index]
+			if temperature == nil {
+				temperature = &models.Temperature{Index: index}
+				temperaturesByIndex[index] = temperature
+			}
+
+			switch rootOID {
+			case temperatureLocaleOID:
+				temperature.Locale = int(gosnmp.ToBigInt(packet.Value).Int64())
+			case temperatureLabelOID:
+				temperature.Label = strings.TrimSpace(asString(packet.Value))
+			case temperatureValueOID:
+				temperature.Temperature = int(gosnmp.ToBigInt(packet.Value).Int64())
+			}
+		}
+	}
+
+	temperatures := make([]models.Temperature, 0, len(temperaturesByIndex))
+	for _, temperature := range temperaturesByIndex {
+		if temperature.Label == "" && temperature.Temperature == 0 {
+			continue
+		}
+
+		temperatures = append(temperatures, *temperature)
+	}
+
+	sort.Slice(temperatures, func(i, j int) bool {
+		return temperatures[i].Index < temperatures[j].Index
+	})
+
+	return temperatures, nil
 }
 
 func (s *service) SetFans(ctx context.Context, request models.SetFansRequest) ([]models.Fan, error) {
@@ -261,8 +358,8 @@ func buildCommands(fans []models.Fan, targetSpeeds map[string]int) []string {
 		}
 
 		commands = append(commands,
-			fmt.Sprintf("fan p %d max %d", fan.Index, percentageToILOValue(targetSpeed)),
-			fmt.Sprintf("fan p %d min 255", fan.Index),
+			fmt.Sprintf("fan p %d max %d", fan.CommandNumber, percentageToILOValue(targetSpeed)),
+			fmt.Sprintf("fan p %d min 255", fan.CommandNumber),
 		)
 	}
 
@@ -275,4 +372,66 @@ func (s *service) emit(clientID, eventType, message string) {
 	}
 
 	s.hub.Send(clientID, eventType, message)
+}
+
+func parseFanCommandNumber(memberID, fanName string) (int, error) {
+	if commandNumber, ok := parseIntIfPresent(memberID); ok {
+		return commandNumber, nil
+	}
+
+	if matches := trailingNumberPattern.FindStringSubmatch(fanName); len(matches) == 2 {
+		commandNumber, err := strconv.Atoi(matches[1])
+		if err == nil {
+			return commandNumber, nil
+		}
+	}
+
+	return 0, fmt.Errorf("unable to determine command number for fan %q", fanName)
+}
+
+func parseIntIfPresent(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+
+	parsedValue, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, false
+	}
+
+	return parsedValue, true
+}
+
+func snmpVersion(version string) gosnmp.SnmpVersion {
+	if strings.EqualFold(strings.TrimSpace(version), "1") || strings.EqualFold(strings.TrimSpace(version), "v1") {
+		return gosnmp.Version1
+	}
+
+	return gosnmp.Version2c
+}
+
+func snmpIndex(oid string) (int, bool) {
+	parts := strings.Split(strings.TrimPrefix(strings.TrimSpace(oid), "."), ".")
+	if len(parts) == 0 {
+		return 0, false
+	}
+
+	index, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return 0, false
+	}
+
+	return index, true
+}
+
+func asString(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case []byte:
+		return string(typed)
+	default:
+		return fmt.Sprint(value)
+	}
 }

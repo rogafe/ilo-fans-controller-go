@@ -30,6 +30,7 @@ function clampSpeed(speed) {
 function getAppData() {
   return window.__APP_DATA__ || {
     fans: initialFans,
+    temperatures: [],
     presets: initialPresets,
     minimumFanSpeed: 15,
     status: null,
@@ -59,18 +60,24 @@ document.addEventListener('alpine:init', () => {
       ...fan,
       originalSpeed: fan.originalSpeed ?? fan.speed,
     })),
+    temperatures: structuredClone(appData.temperatures || []),
     presets: structuredClone(appData.presets || initialPresets),
     currentPreset: null,
     editAll: false,
     isLoading: false,
     requestTime: null,
-    theme: localStorage.getItem('ilo-theme') || 'light',
+    theme: localStorage.getItem('ilo-theme') || 'night',
     minimumFanSpeed: appData.minimumFanSpeed || 15,
     status: appData.status,
     clientId: getClientId(),
     consoleLines: [],
     socketConnected: false,
     socket: null,
+    newPresetModal: {
+      open: false,
+      name: '',
+      error: '',
+    },
 
     init() {
       this.applyTheme(this.theme);
@@ -85,7 +92,7 @@ document.addEventListener('alpine:init', () => {
     },
 
     cycleTheme() {
-      this.applyTheme(this.theme === 'light' ? 'dark' : 'light');
+      this.applyTheme(this.theme === 'night' ? 'light' : 'night');
     },
 
     updateFanSpeed(index, speed) {
@@ -152,9 +159,25 @@ document.addEventListener('alpine:init', () => {
       this.currentPreset = index;
     },
 
-    newPreset() {
-      const name = window.prompt('Enter the name of the new preset:');
-      if (!name || !name.trim()) {
+    openNewPresetModal() {
+      this.newPresetModal.name = '';
+      this.newPresetModal.error = '';
+      this.newPresetModal.open = true;
+      this.$nextTick(() => {
+        this.$refs.presetNameInput?.focus();
+      });
+    },
+
+    closeNewPresetModal() {
+      this.newPresetModal.open = false;
+      this.newPresetModal.name = '';
+      this.newPresetModal.error = '';
+    },
+
+    confirmNewPreset() {
+      const name = this.newPresetModal.name.trim();
+      if (!name) {
+        this.newPresetModal.error = 'Please enter a preset name.';
         return;
       }
 
@@ -168,12 +191,13 @@ document.addEventListener('alpine:init', () => {
       });
 
       if (existingPreset) {
-        window.alert(`A preset with the same speeds already exists (${existingPreset.name}).`);
+        this.newPresetModal.error = `A preset with these speeds already exists: "${existingPreset.name}".`;
         return;
       }
 
-      this.presets.push({ name: name.trim(), speeds });
+      this.presets.push({ name, speeds });
       this.currentPreset = this.presets.length - 1;
+      this.closeNewPresetModal();
       this.savePresets();
     },
 
@@ -287,7 +311,7 @@ document.addEventListener('alpine:init', () => {
           return [];
         }
 
-        const fanIndex = Number.isInteger(fan.index) ? fan.index : index;
+        const fanIndex = Number.isInteger(fan.commandNumber) ? fan.commandNumber : index + 1;
         return [
           `fan p ${fanIndex} max ${percentageToILOValue(fan.speed)}`,
           `fan p ${fanIndex} min 255`,

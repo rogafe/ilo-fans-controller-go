@@ -18,6 +18,7 @@ func Register(app *fiber.App, handler *handlers.Handler) {
 	app.Get("/ws/console", websocket.New(handler.ConsoleWebSocket))
 	app.Get("/", handler.GetIndex)
 	app.Get("/api/fans", handler.GetFans)
+	app.Get("/api/temperatures", handler.GetTemperatures)
 	app.Post("/api/fans", handler.SetFans)
 	app.Get("/api/presets", handler.GetPresets)
 	app.Post("/api/presets", handler.SavePresets)

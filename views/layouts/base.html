@@ -1,21 +1,19 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="night">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{if .PageTitle}}{{.PageTitle}}{{else}}iLO Fans Controller{{end}}</title>
     <script>
         (function() {
-            const storedTheme = localStorage.getItem("ilo-theme") || "light";
+            const storedTheme = localStorage.getItem("ilo-theme") || "night";
             document.documentElement.setAttribute("data-theme", storedTheme);
         })();
     </script>
     <link rel="stylesheet" href="/assets/styles.css">
     <script src="/assets/bundle.js" defer></script>
 </head>
-<body class="min-h-screen app-bg text-base-content transition-colors duration-200">
-    <main class="mx-auto flex min-h-screen w-full max-w-4xl items-center justify-center px-4 py-5 sm:px-8 sm:py-10">
-        {{embed}}
-    </main>
+<body class="min-h-screen bg-base-200 text-base-content">
+    {{embed}}
 </body>
 </html>

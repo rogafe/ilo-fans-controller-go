@@ -3,9 +3,16 @@ package models
 import "time"
 
 type Fan struct {
-	Name  string `json:"name"`
-	Speed int    `json:"speed"`
-	Index int    `json:"index"`
+	Name          string `json:"name"`
+	Speed         int    `json:"speed"`
+	CommandNumber int    `json:"commandNumber"`
+}
+
+type Temperature struct {
+	Index       int    `json:"index"`
+	Locale      int    `json:"locale"`
+	Label       string `json:"label"`
+	Temperature int    `json:"temperature"`
 }
 
 type Preset struct {

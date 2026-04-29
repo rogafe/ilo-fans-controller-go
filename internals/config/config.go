@@ -8,24 +8,46 @@ import (
 )
 
 type Config struct {
-	Port             string
-	ILOHost          string
-	ILOUsername      string
-	ILOPassword      string
-	MinimumFanSpeed  int
-	AllowInsecureTLS bool
-	DatabaseURL      string
+	Port                      string
+	ILOHost                   string
+	ILOUsername               string
+	ILOPassword               string
+	ILOSSHKexAlgos            []string
+	ILOSSHHostKeyAlgos        []string
+	ILOSSHPubkeyAcceptedAlgos []string
+	ILOSSHCiphers             []string
+	ILOSSHMACs                []string
+	ILOSNMPHost               string
+	ILOSNMPPort               uint16
+	ILOSNMPCommunity          string
+	ILOSNMPVersion            string
+	ILOSNMPTimeoutSeconds     int
+	ILOSNMPRetries            int
+	MinimumFanSpeed           int
+	AllowInsecureTLS          bool
+	DatabaseURL               string
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		Port:             getEnv("PORT", "3000"),
-		ILOHost:          strings.TrimSpace(os.Getenv("ILO_HOST")),
-		ILOUsername:      strings.TrimSpace(os.Getenv("ILO_USERNAME")),
-		ILOPassword:      os.Getenv("ILO_PASSWORD"),
-		MinimumFanSpeed:  getEnvInt("MINIMUM_FAN_SPEED", 10),
-		AllowInsecureTLS: getEnvBool("ILO_INSECURE_TLS", true),
-		DatabaseURL:      strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		Port:                      getEnv("PORT", "3000"),
+		ILOHost:                   strings.TrimSpace(os.Getenv("ILO_HOST")),
+		ILOUsername:               strings.TrimSpace(os.Getenv("ILO_USERNAME")),
+		ILOPassword:               os.Getenv("ILO_PASSWORD"),
+		ILOSSHKexAlgos:            getEnvList("ILO_SSH_KEX_ALGORITHMS"),
+		ILOSSHHostKeyAlgos:        getEnvList("ILO_SSH_HOST_KEY_ALGORITHMS"),
+		ILOSSHPubkeyAcceptedAlgos: getEnvList("ILO_SSH_PUBKEY_ACCEPTED_ALGORITHMS"),
+		ILOSSHCiphers:             getEnvList("ILO_SSH_CIPHERS"),
+		ILOSSHMACs:                getEnvList("ILO_SSH_MACS"),
+		ILOSNMPHost:               getEnv("ILO_SNMP_HOST", strings.TrimSpace(os.Getenv("ILO_HOST"))),
+		ILOSNMPPort:               uint16(getEnvInt("ILO_SNMP_PORT", 161)),
+		ILOSNMPCommunity:          getEnv("ILO_SNMP_COMMUNITY", "public"),
+		ILOSNMPVersion:            getEnv("ILO_SNMP_VERSION", "2c"),
+		ILOSNMPTimeoutSeconds:     getEnvInt("ILO_SNMP_TIMEOUT_SECONDS", 5),
+		ILOSNMPRetries:            getEnvInt("ILO_SNMP_RETRIES", 1),
+		MinimumFanSpeed:           getEnvInt("MINIMUM_FAN_SPEED", 10),
+		AllowInsecureTLS:          getEnvBool("ILO_INSECURE_TLS", true),
+		DatabaseURL:               strings.TrimSpace(os.Getenv("DATABASE_URL")),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -45,6 +67,10 @@ func Load() (Config, error) {
 
 func (c Config) HasILOConfig() bool {
 	return c.ILOHost != "" && c.ILOUsername != "" && c.ILOPassword != ""
+}
+
+func (c Config) HasILOSNMPConfig() bool {
+	return c.ILOSNMPHost != "" && c.ILOSNMPCommunity != ""
 }
 
 func getEnv(key, fallback string) string {
@@ -82,6 +108,28 @@ func getEnvBool(key string, fallback bool) bool {
 	}
 
 	return value
+}
+
+func getEnvList(key string) []string {
+	rawValue := strings.TrimSpace(os.Getenv(key))
+	if rawValue == "" {
+		return nil
+	}
+
+	parts := strings.Split(rawValue, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+
+	if len(values) == 0 {
+		return nil
+	}
+
+	return values
 }
 
 func buildDatabaseURLFromParts() (string, error) {
