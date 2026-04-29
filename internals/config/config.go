@@ -24,6 +24,8 @@ type Config struct {
 	ILOSNMPTimeoutSeconds     int
 	ILOSNMPRetries            int
 	MinimumFanSpeed           int
+	FanApplyTimeoutSeconds    int
+	FanApplyTolerance         int
 	AllowInsecureTLS          bool
 	DatabaseURL               string
 }
@@ -46,6 +48,8 @@ func Load() (Config, error) {
 		ILOSNMPTimeoutSeconds:     getEnvInt("ILO_SNMP_TIMEOUT_SECONDS", 5),
 		ILOSNMPRetries:            getEnvInt("ILO_SNMP_RETRIES", 1),
 		MinimumFanSpeed:           getEnvInt("MINIMUM_FAN_SPEED", 10),
+		FanApplyTimeoutSeconds:    getEnvInt("FAN_APPLY_TIMEOUT_SECONDS", 30),
+		FanApplyTolerance:         getEnvInt("FAN_APPLY_TOLERANCE", 2),
 		AllowInsecureTLS:          getEnvBool("ILO_INSECURE_TLS", true),
 		DatabaseURL:               strings.TrimSpace(os.Getenv("DATABASE_URL")),
 	}
@@ -60,6 +64,14 @@ func Load() (Config, error) {
 
 	if cfg.MinimumFanSpeed < 0 || cfg.MinimumFanSpeed > 100 {
 		return Config{}, fmt.Errorf("MINIMUM_FAN_SPEED must be between 0 and 100")
+	}
+
+	if cfg.FanApplyTimeoutSeconds < 1 || cfg.FanApplyTimeoutSeconds > 600 {
+		return Config{}, fmt.Errorf("FAN_APPLY_TIMEOUT_SECONDS must be between 1 and 600")
+	}
+
+	if cfg.FanApplyTolerance < 0 || cfg.FanApplyTolerance > 20 {
+		return Config{}, fmt.Errorf("FAN_APPLY_TOLERANCE must be between 0 and 20")
 	}
 
 	return cfg, nil

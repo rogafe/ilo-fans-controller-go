@@ -430,19 +430,24 @@ func (s *service) runSSHCommand(client *ssh.Client, command string) error {
 }
 
 func (s *service) pollUntilApplied(ctx context.Context, targetSpeeds map[string]int) ([]models.Fan, error) {
-	deadline := time.Now().Add(10 * time.Second)
+	timeout := time.Duration(s.cfg.FanApplyTimeoutSeconds) * time.Second
+	deadline := time.Now().Add(timeout)
 	for {
 		fans, err := s.GetFans(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		if fansMatchTargets(fans, targetSpeeds) {
+		if fansMatchTargets(fans, targetSpeeds, s.cfg.FanApplyTolerance) {
 			return fans, nil
 		}
 
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("timed out waiting for fans to reach requested speeds")
+			details := formatFanMismatchDetails(fans, targetSpeeds)
+			if details != "" {
+				return nil, fmt.Errorf("timed out waiting for fans to reach requested speeds (tolerance=%d, timeout=%s): %s", s.cfg.FanApplyTolerance, timeout, details)
+			}
+			return nil, fmt.Errorf("timed out waiting for fans to reach requested speeds (tolerance=%d, timeout=%s)", s.cfg.FanApplyTolerance, timeout)
 		}
 
 		select {
@@ -453,15 +458,71 @@ func (s *service) pollUntilApplied(ctx context.Context, targetSpeeds map[string]
 	}
 }
 
-func fansMatchTargets(fans []models.Fan, targetSpeeds map[string]int) bool {
+func fansMatchTargets(fans []models.Fan, targetSpeeds map[string]int, tolerance int) bool {
 	for _, fan := range fans {
 		targetSpeed, ok := targetSpeeds[fan.Name]
-		if ok && fan.Speed != targetSpeed {
+		if !ok {
+			continue
+		}
+
+		// iLO fan readings may not exactly equal requested values; allow tolerance.
+		// Additionally, when using "min bound" semantics, iLO might settle slightly above
+		// the requested value depending on thermal demand.
+		if fan.Speed < targetSpeed-tolerance {
 			return false
 		}
 	}
 
 	return true
+}
+
+type fanMismatch struct {
+	name   string
+	actual int
+	target int
+	delta  int
+}
+
+func formatFanMismatchDetails(fans []models.Fan, targetSpeeds map[string]int) string {
+	mismatches := make([]fanMismatch, 0, len(targetSpeeds))
+	for _, fan := range fans {
+		target, ok := targetSpeeds[fan.Name]
+		if !ok {
+			continue
+		}
+
+		delta := fan.Speed - target
+		if delta < 0 {
+			delta = -delta
+		}
+		mismatches = append(mismatches, fanMismatch{
+			name:   fan.Name,
+			actual: fan.Speed,
+			target: target,
+			delta:  delta,
+		})
+	}
+
+	if len(mismatches) == 0 {
+		return ""
+	}
+
+	sort.Slice(mismatches, func(i, j int) bool {
+		return mismatches[i].delta > mismatches[j].delta
+	})
+
+	limit := 5
+	if len(mismatches) < limit {
+		limit = len(mismatches)
+	}
+
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		m := mismatches[i]
+		parts = append(parts, fmt.Sprintf("%s=%d (target %d)", m.name, m.actual, m.target))
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 func percentageToILOValue(speed int) int {
@@ -477,8 +538,8 @@ func buildCommands(fans []models.Fan, targetSpeeds map[string]int) []string {
 		}
 
 		commands = append(commands,
-			fmt.Sprintf("fan p %d max %d", fan.CommandNumber, percentageToILOValue(targetSpeed)),
-			fmt.Sprintf("fan p %d min 255", fan.CommandNumber),
+			fmt.Sprintf("fan p %d min %d", fan.CommandNumber, percentageToILOValue(targetSpeed)),
+			fmt.Sprintf("fan p %d max 255", fan.CommandNumber),
 		)
 	}
 
