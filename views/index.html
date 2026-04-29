@@ -75,7 +75,7 @@
     </div>
 
     <!-- Main dashboard grid -->
-    <div class="flex flex-1 flex-col gap-4 p-4 lg:flex-row lg:items-start">
+    <div class="flex flex-1 flex-col gap-4 p-4 pb-24 lg:flex-row lg:items-start">
 
         <!-- Left panel: Fans -->
         <div class="flex flex-col gap-4 lg:flex-1 lg:min-w-0">
@@ -221,117 +221,244 @@
             </div>
         </div>
 
-        <!-- Right panel: Temperatures + Console -->
+        <!-- Right panel: Temperatures -->
         <div class="flex flex-col gap-4 lg:w-[34rem] xl:w-[42rem]">
 
             <!-- Temperatures card -->
             <div class="card bg-base-100 shadow-md">
                 <div class="card-body p-4">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 text-base-content/50">
-                                <path fill-rule="evenodd" d="M10 2a.75.75 0 0 1 .75.75v7.19l2.28 2.28a.75.75 0 1 1-1.06 1.06l-2.5-2.5a.75.75 0 0 1-.22-.53V2.75A.75.75 0 0 1 10 2ZM5.404 4.343a.75.75 0 0 1 0 1.061 6.5 6.5 0 1 0 9.192 0 .75.75 0 1 1 1.06-1.06 8 8 0 1 1-11.313 0 .75.75 0 0 1 1.06 0Z" clip-rule="evenodd" />
-                            </svg>
-                            <h2 class="text-sm font-semibold uppercase tracking-wider text-base-content/50">Temperatures</h2>
+                    <div class="flex flex-col gap-3 mb-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 text-base-content/50">
+                                    <path fill-rule="evenodd" d="M10 2a.75.75 0 0 1 .75.75v7.19l2.28 2.28a.75.75 0 1 1-1.06 1.06l-2.5-2.5a.75.75 0 0 1-.22-.53V2.75A.75.75 0 0 1 10 2ZM5.404 4.343a.75.75 0 0 1 0 1.061 6.5 6.5 0 1 0 9.192 0 .75.75 0 1 1 1.06-1.06 8 8 0 1 1-11.313 0 .75.75 0 0 1 1.06 0Z" clip-rule="evenodd" />
+                                </svg>
+                                <h2 class="text-sm font-semibold uppercase tracking-wider text-base-content/50">Temperatures</h2>
+                            </div>
+                            <div class="badge badge-ghost badge-sm font-mono" x-text="`${temperatures.length} sensors`"></div>
                         </div>
-                        <div class="badge badge-ghost badge-sm font-mono" x-text="`${temperatures.length} sensors`"></div>
+
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
+                                <span class="badge badge-success badge-outline badge-sm">
+                                    <span x-text="temperatureSummary().ok"></span>&nbsp;OK
+                                </span>
+                                <span class="badge badge-warning badge-outline badge-sm">
+                                    <span x-text="temperatureSummary().warning"></span>&nbsp;Warn
+                                </span>
+                                <span class="badge badge-error badge-outline badge-sm">
+                                    <span x-text="temperatureSummary().error"></span>&nbsp;Crit
+                                </span>
+                                <span class="badge badge-ghost badge-sm">
+                                    <span x-text="temperatureSummary().absent"></span>&nbsp;Absent
+                                </span>
+                                <span class="badge badge-ghost badge-sm" x-show="temperatureSummary().maxTemp !== null">
+                                    Max&nbsp;<span
+                                        class="font-semibold"
+                                        :class="temperatureSummary().maxTone === 'error' ? 'text-error' : temperatureSummary().maxTone === 'warning' ? 'text-warning' : 'text-success'"
+                                        x-text="`${temperatureSummary().maxTemp}C`"
+                                    ></span>
+                                </span>
+                            </div>
+
+                            <div class="join">
+                                <button type="button" class="btn btn-xs join-item"
+                                        :class="temperatureFilter === 'all' ? 'btn-active btn-success' : 'btn-ghost'"
+                                        @click="setTemperatureFilter('all')">All</button>
+                                <button type="button" class="btn btn-xs join-item"
+                                        :class="temperatureFilter === 'success' ? 'btn-active btn-success' : 'btn-ghost'"
+                                        @click="setTemperatureFilter('success')">OK</button>
+                                <button type="button" class="btn btn-xs join-item"
+                                        :class="temperatureFilter === 'warning' ? 'btn-active btn-warning' : 'btn-ghost'"
+                                        @click="setTemperatureFilter('warning')">Warning</button>
+                                <button type="button" class="btn btn-xs join-item"
+                                        :class="temperatureFilter === 'error' ? 'btn-active btn-error' : 'btn-ghost'"
+                                        @click="setTemperatureFilter('error')">Critical</button>
+                                <button type="button" class="btn btn-xs join-item"
+                                        :class="temperatureFilter === 'ghost' ? 'btn-active btn-ghost' : 'btn-ghost'"
+                                        @click="setTemperatureFilter('ghost')">Absent</button>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="hidden lg:block overflow-x-auto">
-                        <table class="table table-zebra table-sm">
-                            <thead>
-                                <tr class="text-[11px] uppercase tracking-wider text-base-content/50">
-                                    <th>Sensor</th>
-                                    <th>Location</th>
-                                    <th>Status</th>
-                                    <th class="text-right">Reading</th>
-                                    <th>Thresholds</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <template x-for="temperature in temperatures" :key="temperature.index">
-                                    <tr>
-                                        <td class="min-w-[12rem]">
-                                            <div class="flex flex-col gap-1">
-                                                <span class="font-semibold" x-text="formatTemperatureName(temperature)"></span>
-                                                <div class="flex flex-wrap items-center gap-2 text-[11px] text-base-content/45">
-                                                    <span class="font-mono" x-text="`#${String(temperature.index).padStart(2, '0')}`"></span>
-                                                    <span x-show="hasTemperatureCoordinates(temperature)" x-text="`x:${temperature.locationX} y:${temperature.locationY}`"></span>
+                    <div class="grid gap-2">
+                        <template x-for="group in groupedTemperatures()" :key="group.key">
+                            <details
+                                class="collapse collapse-arrow border border-base-300/50 bg-base-200/40"
+                                :open="isTempGroupOpen(group)"
+                                @toggle="onTempGroupToggle(group.key, $event.target.open)"
+                            >
+                                <summary class="collapse-title px-4 py-3">
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <div class="flex min-w-0 items-center gap-2">
+                                            <span class="truncate font-semibold" x-text="group.label"></span>
+                                            <span class="badge badge-ghost badge-sm font-mono" x-text="`${group.counts.total} sensors`"></span>
+                                        </div>
+
+                                        <div class="flex flex-wrap items-center gap-2 text-xs font-mono">
+                                            <span class="badge badge-success badge-outline badge-sm" x-show="group.counts.ok > 0">
+                                                <span x-text="group.counts.ok"></span>&nbsp;OK
+                                            </span>
+                                            <span class="badge badge-warning badge-outline badge-sm" x-show="group.counts.warning > 0">
+                                                <span x-text="group.counts.warning"></span>&nbsp;Warn
+                                            </span>
+                                            <span class="badge badge-error badge-outline badge-sm" x-show="group.counts.error > 0">
+                                                <span x-text="group.counts.error"></span>&nbsp;Crit
+                                            </span>
+                                            <span class="badge badge-ghost badge-sm" x-show="group.counts.absent > 0">
+                                                <span x-text="group.counts.absent"></span>&nbsp;Absent
+                                            </span>
+                                            <span class="badge badge-ghost badge-sm" x-show="group.maxTemp !== null">
+                                                Max&nbsp;<span
+                                                    class="font-semibold"
+                                                    :class="group.maxTone === 'error' ? 'text-error' : group.maxTone === 'warning' ? 'text-warning' : 'text-success'"
+                                                    x-text="`${group.maxTemp}C`"
+                                                ></span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </summary>
+
+                                <div class="collapse-content px-3 pb-3">
+                                    <div class="hidden lg:block overflow-x-auto">
+                                        <table class="table table-zebra table-sm">
+                                            <thead>
+                                                <tr class="text-[11px] uppercase tracking-wider text-base-content/50">
+                                                    <th>Sensor</th>
+                                                    <th>Location</th>
+                                                    <th>Status</th>
+                                                    <th class="text-right">Reading</th>
+                                                    <th>Thresholds</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <template x-for="temperature in group.sensors" :key="temperature.index">
+                                                    <tr>
+                                                        <td class="min-w-[12rem]">
+                                                            <div class="flex flex-col gap-1">
+                                                                <span class="font-semibold" x-text="formatTemperatureName(temperature)"></span>
+                                                                <div class="flex flex-wrap items-center gap-2 text-[11px] text-base-content/45">
+                                                                    <span class="font-mono" x-text="`#${String(temperature.index).padStart(2, '0')}`"></span>
+                                                                    <span x-show="hasTemperatureCoordinates(temperature)" x-text="`x:${temperature.locationX} y:${temperature.locationY}`"></span>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td class="text-xs text-base-content/70" x-text="formatTemperatureLocation(temperature)"></td>
+                                                        <td>
+                                                            <span class="badge badge-sm"
+                                                                  :class="temperatureTone(temperature) === 'error' ? 'badge-error badge-outline' : temperatureTone(temperature) === 'warning' ? 'badge-warning badge-outline' : temperatureTone(temperature) === 'ghost' ? 'badge-ghost' : 'badge-success badge-outline'"
+                                                                  x-text="formatTemperatureStatus(temperature)"></span>
+                                                        </td>
+                                                        <td class="text-right">
+                                                            <span class="font-mono font-semibold"
+                                                                  :class="temperatureTone(temperature) === 'error' ? 'text-error' : temperatureTone(temperature) === 'warning' ? 'text-warning' : 'text-success'"
+                                                                  x-text="`${temperature.temperature}C`"></span>
+                                                        </td>
+                                                        <td class="text-xs text-base-content/70" x-text="formatTemperatureThresholds(temperature)"></td>
+                                                    </tr>
+                                                </template>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <div class="grid gap-2 lg:hidden">
+                                        <template x-for="temperature in group.sensors" :key="temperature.index">
+                                            <div class="rounded-xl border p-3"
+                                                 :class="temperatureTone(temperature) === 'error' ? 'border-error/30 bg-error/5' : temperatureTone(temperature) === 'warning' ? 'border-warning/30 bg-warning/5' : 'border-success/30 bg-success/5'">
+                                                <div class="flex items-start justify-between gap-3">
+                                                    <div class="min-w-0">
+                                                        <p class="truncate text-sm font-semibold" x-text="formatTemperatureName(temperature)"></p>
+                                                        <p class="mt-1 text-xs text-base-content/55" x-text="formatTemperatureLocation(temperature)"></p>
+                                                    </div>
+                                                    <span class="badge badge-sm shrink-0"
+                                                          :class="temperatureTone(temperature) === 'error' ? 'badge-error badge-outline' : temperatureTone(temperature) === 'warning' ? 'badge-warning badge-outline' : temperatureTone(temperature) === 'ghost' ? 'badge-ghost' : 'badge-success badge-outline'"
+                                                          x-text="formatTemperatureStatus(temperature)"></span>
+                                                </div>
+
+                                                <div class="mt-3 flex items-end justify-between gap-3">
+                                                    <div>
+                                                        <p class="text-[11px] uppercase tracking-wider text-base-content/40">Thresholds</p>
+                                                        <p class="text-xs text-base-content/65" x-text="formatTemperatureThresholds(temperature)"></p>
+                                                    </div>
+                                                    <p class="font-mono text-xl font-bold"
+                                                       :class="temperatureTone(temperature) === 'error' ? 'text-error' : temperatureTone(temperature) === 'warning' ? 'text-warning' : 'text-success'"
+                                                       x-text="`${temperature.temperature}C`"></p>
                                                 </div>
                                             </div>
-                                        </td>
-                                        <td class="text-xs text-base-content/70" x-text="formatTemperatureLocation(temperature)"></td>
-                                        <td>
-                                            <span class="badge badge-sm"
-                                                  :class="temperatureTone(temperature) === 'error' ? 'badge-error badge-outline' : temperatureTone(temperature) === 'warning' ? 'badge-warning badge-outline' : temperatureTone(temperature) === 'ghost' ? 'badge-ghost' : 'badge-success badge-outline'"
-                                                  x-text="formatTemperatureStatus(temperature)"></span>
-                                        </td>
-                                        <td class="text-right">
-                                            <span class="font-mono font-semibold"
-                                                  :class="temperatureTone(temperature) === 'error' ? 'text-error' : temperatureTone(temperature) === 'warning' ? 'text-warning' : 'text-success'"
-                                                  x-text="`${temperature.temperature}C`"></span>
-                                        </td>
-                                        <td class="text-xs text-base-content/70" x-text="formatTemperatureThresholds(temperature)"></td>
-                                    </tr>
-                                </template>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="grid gap-2 lg:hidden">
-                        <template x-for="temperature in temperatures" :key="temperature.index">
-                            <div class="rounded-xl border p-3"
-                                 :class="temperatureTone(temperature) === 'error' ? 'border-error/30 bg-error/5' : temperatureTone(temperature) === 'warning' ? 'border-warning/30 bg-warning/5' : 'border-success/30 bg-success/5'">
-                                <div class="flex items-start justify-between gap-3">
-                                    <div class="min-w-0">
-                                        <p class="truncate text-sm font-semibold" x-text="formatTemperatureName(temperature)"></p>
-                                        <p class="mt-1 text-xs text-base-content/55" x-text="formatTemperatureLocation(temperature)"></p>
+                                        </template>
                                     </div>
-                                    <span class="badge badge-sm shrink-0"
-                                          :class="temperatureTone(temperature) === 'error' ? 'badge-error badge-outline' : temperatureTone(temperature) === 'warning' ? 'badge-warning badge-outline' : temperatureTone(temperature) === 'ghost' ? 'badge-ghost' : 'badge-success badge-outline'"
-                                          x-text="formatTemperatureStatus(temperature)"></span>
                                 </div>
-
-                                <div class="mt-3 flex items-end justify-between gap-3">
-                                    <div>
-                                        <p class="text-[11px] uppercase tracking-wider text-base-content/40">Thresholds</p>
-                                        <p class="text-xs text-base-content/65" x-text="formatTemperatureThresholds(temperature)"></p>
-                                    </div>
-                                    <p class="font-mono text-xl font-bold"
-                                       :class="temperatureTone(temperature) === 'error' ? 'text-error' : temperatureTone(temperature) === 'warning' ? 'text-warning' : 'text-success'"
-                                       x-text="`${temperature.temperature}C`"></p>
-                                </div>
-                            </div>
+                            </details>
                         </template>
                     </div>
 
-                    <div x-show="temperatures.length === 0" class="py-8 text-center text-sm text-base-content/40">
+                    <div x-show="groupedTemperatures().length === 0" class="py-8 text-center text-sm text-base-content/40">
                         No sensors detected.
                     </div>
                 </div>
             </div>
 
-            <!-- Console card -->
-            <div class="card bg-base-100 shadow-md">
-                <div class="card-body p-4">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 text-base-content/50">
-                                <path fill-rule="evenodd" d="M2 5a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5Zm3.293 3.293a1 1 0 0 1 1.414 0L8 9.586l1.293-1.293a1 1 0 1 1 1.414 1.414l-2 2a1 1 0 0 1-1.414 0l-2-2a1 1 0 0 1 0-1.414ZM10 13a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2h-2a1 1 0 0 1-1-1Z" clip-rule="evenodd" />
-                            </svg>
-                            <h2 class="text-sm font-semibold uppercase tracking-wider text-base-content/50">Console</h2>
-                        </div>
-                        <!-- Mobile WS badge -->
-                        <div x-cloak class="badge gap-1.5 py-2.5 font-mono text-xs sm:hidden"
-                             :class="socketConnected ? 'badge-success badge-outline' : 'badge-error badge-outline'">
-                            <span class="inline-block h-1.5 w-1.5 rounded-full"
-                                  :class="socketConnected ? 'bg-success' : 'bg-error'"></span>
-                            <span x-text="socketConnected ? 'WS OK' : 'WS Off'"></span>
-                        </div>
-                    </div>
+        </div>
+    </div>
 
+    <!-- Sticky console bar -->
+    <div class="sticky bottom-0 z-30 border-t border-base-300 bg-base-100/90 backdrop-blur">
+        <div class="mx-auto max-w-screen-2xl">
+            <button
+                type="button"
+                class="flex w-full items-center justify-between gap-3 px-4 py-2 hover:bg-base-200/50"
+                @click="toggleConsole()"
+                :aria-expanded="consoleOpen ? 'true' : 'false'"
+            >
+                <div class="flex min-w-0 items-center gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 text-base-content/50">
+                        <path fill-rule="evenodd" d="M2 5a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5Zm3.293 3.293a1 1 0 0 1 1.414 0L8 9.586l1.293-1.293a1 1 0 1 1 1.414 1.414l-2 2a1 1 0 0 1-1.414 0l-2-2a1 1 0 0 1 0-1.414ZM10 13a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2h-2a1 1 0 0 1-1-1Z" clip-rule="evenodd" />
+                    </svg>
+                    <span class="text-sm font-semibold uppercase tracking-wider text-base-content/50">Console</span>
+                    <div class="hidden sm:flex items-center gap-2 font-mono text-xs text-base-content/40">
+                        <span x-text="`${getPendingCommands().length} pending`"></span>
+                        <span class="opacity-40">·</span>
+                        <span x-text="`${consoleLines.length} lines`"></span>
+                    </div>
+                    <div x-cloak class="badge gap-1.5 py-2.5 font-mono text-xs"
+                         :class="socketConnected ? 'badge-success badge-outline' : 'badge-error badge-outline'">
+                        <span class="inline-block h-1.5 w-1.5 rounded-full"
+                              :class="socketConnected ? 'bg-success' : 'bg-error'"></span>
+                        <span x-text="socketConnected ? 'WS OK' : 'WS Off'"></span>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        @click.stop="clearConsole()"
+                        :disabled="consoleLines.length === 0"
+                        title="Clear output"
+                    >
+                        Clear
+                    </button>
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        class="h-5 w-5 text-base-content/40 transition-transform duration-150"
+                        :class="consoleOpen ? 'rotate-180' : ''"
+                    >
+                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+            </button>
+
+            <div
+                x-cloak
+                x-show="consoleOpen"
+                x-transition.opacity.duration.150ms
+                class="px-4 pb-3"
+            >
+                <div class="grid gap-3 md:grid-cols-2">
                     <!-- Pending commands -->
-                    <div class="mb-3">
+                    <div>
                         <p class="mb-1.5 text-xs font-bold uppercase tracking-widest text-base-content/30">Pending</p>
                         <div class="mockup-code min-h-[4rem] rounded-lg p-2 text-xs">
                             <template x-if="getPendingCommands().length === 0">

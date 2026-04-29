@@ -52,6 +52,37 @@ function percentageToILOValue(speed) {
   return Math.ceil((Number(speed) / 100) * 255);
 }
 
+function getDefaultConsoleOpen() {
+  try {
+    const stored = window.localStorage.getItem('ilo-console-open');
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+  } catch {
+    // ignore
+  }
+
+  return window.matchMedia?.('(min-width: 1024px)')?.matches ?? true;
+}
+
+function getCollapsedTempGroups() {
+  try {
+    const raw = window.localStorage.getItem('ilo-temp-collapsed-groups');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistCollapsedTempGroups(value) {
+  try {
+    window.localStorage.setItem('ilo-temp-collapsed-groups', JSON.stringify(value || {}));
+  } catch {
+    // ignore
+  }
+}
+
 document.addEventListener('alpine:init', () => {
   const appData = getAppData();
 
@@ -61,6 +92,8 @@ document.addEventListener('alpine:init', () => {
       originalSpeed: fan.originalSpeed ?? fan.speed,
     })),
     temperatures: structuredClone(appData.temperatures || []),
+    temperatureFilter: 'all',
+    collapsedTempGroups: getCollapsedTempGroups(),
     presets: structuredClone(appData.presets || initialPresets),
     currentPreset: null,
     editAll: false,
@@ -71,6 +104,7 @@ document.addEventListener('alpine:init', () => {
     status: appData.status,
     clientId: getClientId(),
     consoleLines: [],
+    consoleOpen: getDefaultConsoleOpen(),
     socketConnected: false,
     socket: null,
     newPresetModal: {
@@ -93,6 +127,147 @@ document.addEventListener('alpine:init', () => {
 
     cycleTheme() {
       this.applyTheme(this.theme === 'night' ? 'light' : 'night');
+    },
+
+    toggleConsole() {
+      this.consoleOpen = !this.consoleOpen;
+      try {
+        window.localStorage.setItem('ilo-console-open', this.consoleOpen ? '1' : '0');
+      } catch {
+        // ignore
+      }
+    },
+
+    clearConsole() {
+      this.consoleLines = [];
+    },
+
+    setTemperatureFilter(value) {
+      this.temperatureFilter = value || 'all';
+    },
+
+    filteredTemperatures() {
+      const items = Array.isArray(this.temperatures) ? this.temperatures : [];
+
+      if (this.temperatureFilter === 'all') {
+        return items;
+      }
+
+      const filterTone = this.temperatureFilter;
+      return items.filter((temperature) => this.temperatureTone(temperature) === filterTone);
+    },
+
+    temperatureSummary() {
+      const summary = {
+        total: 0,
+        ok: 0,
+        warning: 0,
+        error: 0,
+        absent: 0,
+        maxTemp: null,
+        maxTone: 'success',
+      };
+
+      const items = Array.isArray(this.temperatures) ? this.temperatures : [];
+      summary.total = items.length;
+
+      for (const temperature of items) {
+        const tone = this.temperatureTone(temperature);
+
+        if (tone === 'ghost') summary.absent += 1;
+        else if (tone === 'error') summary.error += 1;
+        else if (tone === 'warning') summary.warning += 1;
+        else summary.ok += 1;
+
+        if (typeof temperature?.temperature === 'number') {
+          if (summary.maxTemp === null || temperature.temperature > summary.maxTemp) {
+            summary.maxTemp = temperature.temperature;
+            summary.maxTone = tone === 'ghost' ? 'success' : tone;
+          }
+        }
+      }
+
+      return summary;
+    },
+
+    temperatureGroupKey(temperature) {
+      const physicalContext = this.humanizeTemperatureToken(temperature?.physicalContext);
+      const localeLabel = temperature?.localeLabel?.trim();
+      const key = (physicalContext || localeLabel || 'Other').trim();
+      return key || 'Other';
+    },
+
+    groupedTemperatures() {
+      const items = this.filteredTemperatures();
+      const groups = new Map();
+
+      for (const temperature of items) {
+        const key = this.temperatureGroupKey(temperature);
+        if (!groups.has(key)) {
+          groups.set(key, {
+            key,
+            label: key,
+            sensors: [],
+            counts: { ok: 0, warning: 0, error: 0, absent: 0, total: 0 },
+            maxTemp: null,
+            maxTone: 'success',
+            hasNonOk: false,
+          });
+        }
+
+        const group = groups.get(key);
+        group.sensors.push(temperature);
+        group.counts.total += 1;
+
+        const tone = this.temperatureTone(temperature);
+        if (tone === 'ghost') group.counts.absent += 1;
+        else if (tone === 'error') group.counts.error += 1;
+        else if (tone === 'warning') group.counts.warning += 1;
+        else group.counts.ok += 1;
+
+        if (tone === 'error' || tone === 'warning') {
+          group.hasNonOk = true;
+        }
+
+        if (typeof temperature?.temperature === 'number') {
+          if (group.maxTemp === null || temperature.temperature > group.maxTemp) {
+            group.maxTemp = temperature.temperature;
+            group.maxTone = tone === 'ghost' ? 'success' : tone;
+          }
+        }
+      }
+
+      const result = Array.from(groups.values()).map((group) => ({
+        ...group,
+        sensors: group.sensors.sort((a, b) => (a?.index ?? 0) - (b?.index ?? 0)),
+      }));
+
+      result.sort((a, b) => a.label.localeCompare(b.label));
+      return result;
+    },
+
+    isTempGroupCollapsed(key) {
+      return Boolean(this.collapsedTempGroups?.[key]);
+    },
+
+    isTempGroupOpen(group) {
+      if (!group?.key) return true;
+      if (this.isTempGroupCollapsed(group.key)) return false;
+      return Boolean(group.hasNonOk);
+    },
+
+    onTempGroupToggle(key, isOpen) {
+      if (!key) return;
+      const next = { ...(this.collapsedTempGroups || {}) };
+
+      if (isOpen) {
+        delete next[key];
+      } else {
+        next[key] = true;
+      }
+
+      this.collapsedTempGroups = next;
+      persistCollapsedTempGroups(next);
     },
 
     updateFanSpeed(index, speed) {
