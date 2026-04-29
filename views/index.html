@@ -58,11 +58,14 @@
     <!-- Status banner -->
     <div x-cloak x-show="status" class="px-4 pt-3">
         <div role="alert" class="alert"
-             :class="status?.type === 'error' ? 'alert-error' : 'alert-success'">
+             :class="status?.type === 'error' ? 'alert-error' : status?.type === 'offline' ? 'alert-warning' : 'alert-success'">
             <svg x-show="status?.type === 'error'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0 stroke-current" fill="none" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <svg x-show="status?.type !== 'error'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0 stroke-current" fill="none" viewBox="0 0 24 24">
+            <svg x-show="status?.type === 'offline'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0 stroke-current" fill="none" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 0 1 0 12.728m-2.828-2.828a5 5 0 0 0 0-7.072m-2.829 9.9a1 1 0 0 1 0 1.414m-7.071 0a1 1 0 0 1 0-1.414m2.828-2.828a5 5 0 0 1 0-7.072m-2.828-2.828a9 9 0 0 0 0 12.728M12 12h.01" />
+            </svg>
+            <svg x-show="status?.type !== 'error' && status?.type !== 'offline'" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0 stroke-current" fill="none" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <span x-text="status?.message"></span>
@@ -96,6 +99,7 @@
                                 class="btn btn-sm btn-outline btn-success"
                                 :class="currentPreset === index ? 'btn-active' : ''"
                                 @click="applyPreset(index)"
+                                :disabled="status?.type === 'offline'"
                                 x-text="preset.name"
                             ></button>
                         </template>
@@ -103,6 +107,7 @@
                             type="button"
                             class="btn btn-sm btn-ghost btn-square"
                             @click="openNewPresetModal()"
+                            :disabled="status?.type === 'offline'"
                             aria-label="Add preset"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
@@ -197,7 +202,7 @@
                     type="button"
                     class="btn btn-success btn-wide"
                     @click="applySpeeds()"
-                    :disabled="isLoading || fans.length === 0"
+                    :disabled="isLoading || fans.length === 0 || status?.type === 'offline'"
                     :class="isLoading ? 'btn-disabled' : ''"
                 >
                     <template x-if="!isLoading">

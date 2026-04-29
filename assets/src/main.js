@@ -107,6 +107,7 @@ document.addEventListener('alpine:init', () => {
     consoleOpen: getDefaultConsoleOpen(),
     socketConnected: false,
     socket: null,
+    offlineRetryTimer: null,
     newPresetModal: {
       open: false,
       name: '',
@@ -117,6 +118,58 @@ document.addEventListener('alpine:init', () => {
       this.applyTheme(this.theme);
       this.detectPreset();
       this.connectConsole();
+      if (this.status?.type === 'offline') {
+        this.startOfflineRetry();
+      }
+    },
+
+    setOffline(message) {
+      this.status = {
+        type: 'offline',
+        message: message || 'iLO is unreachable. Waiting for it to come back...',
+      };
+      this.startOfflineRetry();
+    },
+
+    startOfflineRetry() {
+      if (this.offlineRetryTimer) {
+        return;
+      }
+
+      const tick = async () => {
+        try {
+          const response = await fetch('/api/fans', { method: 'GET' });
+          if (!response.ok) {
+            if (response.status === 503) {
+              const payload = await response.json().catch(() => ({}));
+              this.status = { type: 'offline', message: payload.error || this.status?.message };
+            }
+            return;
+          }
+
+          const updatedFans = await response.json();
+          this.fans = (updatedFans || []).map((fan) => ({
+            ...fan,
+            originalSpeed: fan.speed,
+          }));
+          this.detectPreset();
+          if (this.status?.type === 'offline') {
+            this.status = { type: 'success', message: 'iLO is reachable again.' };
+          }
+          this.stopOfflineRetry();
+        } catch {
+          // ignore and keep waiting
+        }
+      };
+
+      this.offlineRetryTimer = window.setInterval(tick, 5000);
+      tick();
+    },
+
+    stopOfflineRetry() {
+      if (!this.offlineRetryTimer) return;
+      window.clearInterval(this.offlineRetryTimer);
+      this.offlineRetryTimer = null;
     },
 
     applyTheme(theme) {
@@ -420,6 +473,11 @@ document.addEventListener('alpine:init', () => {
     },
 
     async applySpeeds() {
+      if (this.status?.type === 'offline') {
+        this.setOffline(this.status?.message);
+        return;
+      }
+
       this.isLoading = true;
       this.requestTime = null;
       const startTime = performance.now();
@@ -438,6 +496,10 @@ document.addEventListener('alpine:init', () => {
 
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
+          if (response.status === 503) {
+            this.setOffline(payload.error || 'iLO is unreachable (server completely off). Waiting...');
+            throw new Error(payload.error || 'iLO is unreachable');
+          }
           throw new Error(payload.error || 'Unable to apply fan speeds');
         }
 
@@ -453,10 +515,12 @@ document.addEventListener('alpine:init', () => {
         };
         this.detectPreset();
       } catch (error) {
-        this.status = {
-          type: 'error',
-          message: error.message || 'Unable to apply fan speeds.',
-        };
+        if (this.status?.type !== 'offline') {
+          this.status = {
+            type: 'error',
+            message: error.message || 'Unable to apply fan speeds.',
+          };
+        }
       } finally {
         this.isLoading = false;
       }

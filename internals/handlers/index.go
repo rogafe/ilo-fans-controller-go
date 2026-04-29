@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net"
+	"net/url"
+	"os"
 	"strings"
+	"syscall"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
@@ -43,7 +47,11 @@ func (h *Handler) GetIndex(c *fiber.Ctx) error {
 		loadedFans, err := h.iloService.GetFans(c.UserContext())
 		if err != nil {
 			log.Printf("unable to fetch fans for page render: %v", err)
-			status = &models.StatusMessage{Type: "error", Message: "Unable to connect to iLO right now. The page is available, but live fan controls are temporarily unavailable."}
+			if isILOServerOff(err) {
+				status = &models.StatusMessage{Type: "offline", Message: "iLO is unreachable (server completely off / network unreachable). Entering waiting failsafe mode: the UI will keep retrying until iLO is back."}
+			} else {
+				status = &models.StatusMessage{Type: "error", Message: "Unable to connect to iLO right now. The page is available, but live fan controls are temporarily unavailable."}
+			}
 		} else {
 			fans = loadedFans
 		}
@@ -91,6 +99,10 @@ func (h *Handler) GetFans(c *fiber.Ctx) error {
 	fans, err := h.iloService.GetFans(c.UserContext())
 	if err != nil {
 		log.Printf("unable to fetch fans: %v", err)
+		if isILOServerOff(err) {
+			c.Set("Retry-After", "5")
+			return writeJSONError(c, fiber.StatusServiceUnavailable, "iLO is unreachable (server completely off). Waiting for it to come back.")
+		}
 		return writeJSONError(c, statusForILOError(err), "Unable to fetch fans from iLO")
 	}
 
@@ -115,6 +127,10 @@ func (h *Handler) SetFans(c *fiber.Ctx) error {
 	if err != nil {
 		log.Printf("unable to set fans: %v", err)
 		h.hub.Send(request.ClientID, "error", err.Error())
+		if isILOServerOff(err) {
+			c.Set("Retry-After", "5")
+			return writeJSONError(c, fiber.StatusServiceUnavailable, "iLO is unreachable (server completely off). Fan commands were not sent.")
+		}
 		return writeJSONError(c, statusForILOError(err), err.Error())
 	}
 
@@ -215,6 +231,10 @@ func statusForILOError(err error) int {
 		return fiber.StatusGatewayTimeout
 	}
 
+	if isILOServerOff(err) {
+		return fiber.StatusServiceUnavailable
+	}
+
 	message := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(message, "timed out"):
@@ -224,4 +244,48 @@ func statusForILOError(err error) int {
 	default:
 		return fiber.StatusBadGateway
 	}
+}
+
+func isILOServerOff(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Unwrap common wrapper errors.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		err = urlErr.Err
+	}
+
+	// net/http dial errors typically end up as net.OpError -> os.SyscallError -> syscall.Errno
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		if opErr.Timeout() {
+			return true
+		}
+		if opErr.Err != nil {
+			err = opErr.Err
+		}
+	}
+
+	var syscallErr *os.SyscallError
+	if errors.As(err, &syscallErr) {
+		if errno, ok := syscallErr.Err.(syscall.Errno); ok {
+			switch errno {
+			case syscall.EHOSTUNREACH, syscall.ENETUNREACH, syscall.ECONNREFUSED, syscall.ETIMEDOUT:
+				return true
+			}
+		}
+	}
+
+	// Fallback string matching (covers some platform-dependent variants).
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "no route to host") ||
+		strings.Contains(message, "network is unreachable") ||
+		strings.Contains(message, "connection refused") ||
+		strings.Contains(message, "i/o timeout") ||
+		strings.Contains(message, "timed out")
 }
