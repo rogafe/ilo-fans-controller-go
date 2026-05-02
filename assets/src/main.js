@@ -19,6 +19,8 @@ const initialPresets = [
   { name: 'Turbo Mode', speeds: [100] },
 ];
 
+const advancedProfileConfirmationPhrase = 'APPLY ADVANCED PROFILE';
+
 function clampSpeed(speed) {
   if (Number.isNaN(speed)) {
     return 15;
@@ -32,6 +34,7 @@ function getAppData() {
     fans: initialFans,
     temperatures: [],
     presets: initialPresets,
+    advancedProfiles: [],
     minimumFanSpeed: 15,
     status: null,
   };
@@ -95,6 +98,10 @@ document.addEventListener('alpine:init', () => {
     temperatureFilter: 'all',
     collapsedTempGroups: getCollapsedTempGroups(),
     presets: structuredClone(appData.presets || initialPresets),
+    advancedProfiles: structuredClone(appData.advancedProfiles || []),
+    selectedAdvancedProfileName: appData.advancedProfiles?.[0]?.name || '',
+    advancedConfirmation: '',
+    advancedApplyLoading: false,
     currentPreset: null,
     editAll: false,
     isLoading: false,
@@ -470,6 +477,101 @@ document.addEventListener('alpine:init', () => {
       });
 
       this.currentPreset = matchedPresetIndex === -1 ? null : matchedPresetIndex;
+    },
+
+    selectedAdvancedProfile() {
+      return this.advancedProfiles.find((profile) => profile.name === this.selectedAdvancedProfileName) || null;
+    },
+
+    advancedProfileSummary() {
+      const profile = this.selectedAdvancedProfile();
+      if (!profile) {
+        return null;
+      }
+
+      const bundle = profile.commandBundle || {};
+      const minValues = (bundle.fanMinimums || []).map((command) => command.value);
+      const maxValues = (bundle.fanMaximums || []).map((command) => command.value);
+      const pidLowValues = (bundle.pidLows || []).map((command) => command.value);
+      const pidHighValues = (bundle.pidHighs || []).map((command) => command.value);
+      const ocsdTargets = (bundle.ocsd || []).flatMap((command) => command.sensors || []);
+      const disabledSensors = bundle.disabledSensors || [];
+
+      return {
+        minLabel: minValues.length ? `${Math.min(...minValues)}% across ${bundle.fanMinimums.length} fan(s)` : 'None',
+        maxLabel: maxValues.length ? `${Math.max(...maxValues)}% across ${bundle.fanMaximums.length} fan(s)` : 'None',
+        pidLowLabel: pidLowValues.length ? pidLowValues.join(', ') : 'None',
+        pidHighLabel: pidHighValues.length ? pidHighValues.join(', ') : 'None',
+        ocsdLabel: ocsdTargets.length ? `${ocsdTargets.length} target(s)` : 'None',
+        disabledSensorsLabel: this.formatSensorRange(disabledSensors),
+      };
+    },
+
+    formatSensorRange(values) {
+      if (!Array.isArray(values) || values.length === 0) {
+        return 'None';
+      }
+
+      const sorted = [...values].sort((a, b) => a - b);
+      return `${sorted[0]}-${sorted[sorted.length - 1]} (${sorted.length} sensor${sorted.length === 1 ? '' : 's'})`;
+    },
+
+    canApplyAdvancedProfile() {
+      return Boolean(
+        this.selectedAdvancedProfileName
+        && this.advancedConfirmation === advancedProfileConfirmationPhrase
+        && !this.advancedApplyLoading
+        && this.status?.type !== 'offline'
+      );
+    },
+
+    async applyAdvancedProfile() {
+      if (!this.canApplyAdvancedProfile()) {
+        return;
+      }
+
+      this.advancedApplyLoading = true;
+      this.consoleLines = [];
+
+      try {
+        const response = await fetch('/api/advanced-profiles/apply', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Console-Client-Id': this.clientId,
+          },
+          body: JSON.stringify({
+            clientId: this.clientId,
+            profileName: this.selectedAdvancedProfileName,
+            confirmation: this.advancedConfirmation,
+          }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          if (response.status === 503) {
+            this.setOffline(payload.error || 'iLO is unreachable (server completely off). Waiting...');
+            throw new Error(payload.error || 'iLO is unreachable');
+          }
+
+          throw new Error(payload.error || 'Unable to apply advanced profile');
+        }
+
+        this.status = {
+          type: 'success',
+          message: `Advanced profile "${this.selectedAdvancedProfileName}" applied successfully.`,
+        };
+        this.advancedConfirmation = '';
+      } catch (error) {
+        if (this.status?.type !== 'offline') {
+          this.status = {
+            type: 'error',
+            message: error.message || 'Unable to apply advanced profile.',
+          };
+        }
+      } finally {
+        this.advancedApplyLoading = false;
+      }
     },
 
     async applySpeeds() {

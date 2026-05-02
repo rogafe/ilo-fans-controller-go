@@ -27,6 +27,7 @@ type Service interface {
 	GetFans(context.Context) ([]models.Fan, error)
 	GetTemperatures(context.Context) ([]models.Temperature, error)
 	SetFans(context.Context, models.SetFansRequest) ([]models.Fan, error)
+	ApplyAdvancedProfile(context.Context, models.ApplyAdvancedProfileRequest, models.AdvancedProfile) error
 }
 
 type service struct {
@@ -69,6 +70,7 @@ type thermalResponse struct {
 var trailingNumberPattern = regexp.MustCompile(`(\d+)\s*$`)
 
 const (
+	advancedProfileConfirmation = "APPLY ADVANCED PROFILE"
 	temperatureChassisOID       = ".1.3.6.1.4.1.232.6.2.6.8.1.1"
 	temperatureIndexOID         = ".1.3.6.1.4.1.232.6.2.6.8.1.2"
 	temperatureLocaleOID        = ".1.3.6.1.4.1.232.6.2.6.8.1.3"
@@ -364,6 +366,54 @@ func (s *service) SetFans(ctx context.Context, request models.SetFansRequest) ([
 	return updatedFans, nil
 }
 
+func (s *service) ApplyAdvancedProfile(ctx context.Context, request models.ApplyAdvancedProfileRequest, profile models.AdvancedProfile) error {
+	if strings.TrimSpace(request.Confirmation) != advancedProfileConfirmation {
+		return fmt.Errorf("confirmation phrase must be exactly %q", advancedProfileConfirmation)
+	}
+
+	if !s.cfg.HasILOConfig() {
+		return fmt.Errorf("iLO credentials are not configured")
+	}
+
+	if err := validateAdvancedProfile(profile); err != nil {
+		return err
+	}
+
+	commands := buildAdvancedCommands(profile)
+	if len(commands) == 0 {
+		return fmt.Errorf("advanced profile %q has no commands to apply", profile.Name)
+	}
+
+	s.emit(request.ClientID, "warning", fmt.Sprintf("Applying advanced profile %q", profile.Name))
+	s.emit(request.ClientID, "warning", profile.Warning)
+	s.emit(request.ClientID, "info", fmt.Sprintf("Opening SSH connection to %s", s.cfg.ILOHost))
+
+	client, err := ssh.Dial("tcp", fmt.Sprintf("%s:22", s.cfg.ILOHost), s.sshConfig)
+	if err != nil {
+		s.emit(request.ClientID, "error", err.Error())
+		return err
+	}
+	defer client.Close()
+
+	for _, command := range commands {
+		select {
+		case <-ctx.Done():
+			s.emit(request.ClientID, "error", ctx.Err().Error())
+			return ctx.Err()
+		default:
+		}
+
+		s.emit(request.ClientID, "command", command)
+		if err := s.runSSHCommand(client, command); err != nil {
+			s.emit(request.ClientID, "error", err.Error())
+			return err
+		}
+	}
+
+	s.emit(request.ClientID, "success", fmt.Sprintf("Advanced profile %q applied successfully", profile.Name))
+	return nil
+}
+
 func (s *service) normalizeTargetSpeeds(request models.SetFansRequest, fans []models.Fan) (map[string]int, error) {
 	if request.Speed == nil && len(request.Fans) == 0 {
 		return nil, fmt.Errorf("request must include either speed or fans")
@@ -465,10 +515,11 @@ func fansMatchTargets(fans []models.Fan, targetSpeeds map[string]int, tolerance 
 			continue
 		}
 
-		// iLO fan readings may not exactly equal requested values; allow tolerance.
-		// Additionally, when using "min bound" semantics, iLO might settle slightly above
-		// the requested value depending on thermal demand.
-		if fan.Speed < targetSpeed-tolerance {
+		delta := fan.Speed - targetSpeed
+		if delta < 0 {
+			delta = -delta
+		}
+		if delta > tolerance {
 			return false
 		}
 	}
@@ -537,13 +588,130 @@ func buildCommands(fans []models.Fan, targetSpeeds map[string]int) []string {
 			continue
 		}
 
+		pwm := percentageToILOValue(targetSpeed)
 		commands = append(commands,
-			fmt.Sprintf("fan p %d min %d", fan.CommandNumber, percentageToILOValue(targetSpeed)),
-			fmt.Sprintf("fan p %d max 255", fan.CommandNumber),
+			fmt.Sprintf("fan p %d min %d", fan.CommandNumber, pwm),
+			fmt.Sprintf("fan p %d max %d", fan.CommandNumber, pwm),
 		)
 	}
 
 	return commands
+}
+
+func buildAdvancedCommands(profile models.AdvancedProfile) []string {
+	commands := make([]string, 0, len(profile.CommandBundle.FanMinimums)+len(profile.CommandBundle.FanMaximums)+len(profile.CommandBundle.PIDLows)+len(profile.CommandBundle.PIDHighs)+len(profile.CommandBundle.OCSD)+len(profile.CommandBundle.DisabledSensors))
+
+	for _, command := range profile.CommandBundle.FanMinimums {
+		commands = append(commands, fmt.Sprintf("fan p %d min %d", command.Fan, command.Value))
+	}
+
+	for _, command := range profile.CommandBundle.FanMaximums {
+		commands = append(commands, fmt.Sprintf("fan p %d max %d", command.Fan, command.Value))
+	}
+
+	for _, command := range profile.CommandBundle.PIDLows {
+		commands = append(commands, fmt.Sprintf("fan pid %s lo %d", formatSensorSet(command.Sensors), command.Value))
+	}
+
+	for _, command := range profile.CommandBundle.PIDHighs {
+		commands = append(commands, fmt.Sprintf("fan pid %s hi %d", formatSensorSet(command.Sensors), command.Value))
+	}
+
+	for _, command := range profile.CommandBundle.OCSD {
+		commands = append(commands, fmt.Sprintf("ocsd setts %s %d", formatSensorSet(command.Sensors), command.Value))
+	}
+
+	for _, sensor := range profile.CommandBundle.DisabledSensors {
+		commands = append(commands, fmt.Sprintf("fan t %d off", sensor))
+	}
+
+	return commands
+}
+
+func formatSensorSet(sensors []int) string {
+	values := make([]string, 0, len(sensors))
+	for _, sensor := range sensors {
+		values = append(values, strconv.Itoa(sensor))
+	}
+
+	return "{" + strings.Join(values, ",") + "}"
+}
+
+func validateAdvancedProfile(profile models.AdvancedProfile) error {
+	if strings.TrimSpace(profile.Name) == "" {
+		return fmt.Errorf("profile name is required")
+	}
+
+	for _, command := range profile.CommandBundle.FanMinimums {
+		if err := validateFanBoundCommand(command); err != nil {
+			return fmt.Errorf("fan minimum: %w", err)
+		}
+	}
+
+	for _, command := range profile.CommandBundle.FanMaximums {
+		if err := validateFanBoundCommand(command); err != nil {
+			return fmt.Errorf("fan maximum: %w", err)
+		}
+	}
+
+	for _, command := range profile.CommandBundle.PIDLows {
+		if err := validateSensorCommand(command.Sensors, command.Value); err != nil {
+			return fmt.Errorf("pid low: %w", err)
+		}
+	}
+
+	for _, command := range profile.CommandBundle.PIDHighs {
+		if err := validateSensorCommand(command.Sensors, command.Value); err != nil {
+			return fmt.Errorf("pid high: %w", err)
+		}
+	}
+
+	for _, command := range profile.CommandBundle.OCSD {
+		if err := validateSensorCommand(command.Sensors, command.Value); err != nil {
+			return fmt.Errorf("ocsd: %w", err)
+		}
+	}
+
+	for _, sensor := range profile.CommandBundle.DisabledSensors {
+		if sensor < 0 {
+			return fmt.Errorf("disabled sensor ids must be >= 0")
+		}
+	}
+
+	return nil
+}
+
+func ValidateAdvancedProfile(profile models.AdvancedProfile) error {
+	return validateAdvancedProfile(profile)
+}
+
+func validateFanBoundCommand(command models.FanBoundCommand) error {
+	if command.Fan < 1 {
+		return fmt.Errorf("fan ids must be >= 1")
+	}
+	if command.Value < 0 || command.Value > 100 {
+		return fmt.Errorf("fan values must be between 0 and 100")
+	}
+
+	return nil
+}
+
+func validateSensorCommand(sensors []int, value int) error {
+	if len(sensors) == 0 {
+		return fmt.Errorf("sensor list cannot be empty")
+	}
+
+	for _, sensor := range sensors {
+		if sensor < 0 {
+			return fmt.Errorf("sensor ids must be >= 0")
+		}
+	}
+
+	if value < 0 {
+		return fmt.Errorf("value must be >= 0")
+	}
+
+	return nil
 }
 
 func (s *service) emit(clientID, eventType, message string) {

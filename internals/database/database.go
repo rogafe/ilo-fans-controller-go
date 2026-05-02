@@ -14,7 +14,7 @@ func Open(cfg config.Config) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	if err := db.AutoMigrate(&models.PresetRecord{}); err != nil {
+	if err := db.AutoMigrate(&models.PresetRecord{}, &models.AdvancedProfileRecord{}); err != nil {
 		return nil, err
 	}
 

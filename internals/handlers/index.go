@@ -13,27 +13,31 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
+	"gorm.io/gorm"
 
 	"ilo-fans-controller-go/internals/config"
 	"ilo-fans-controller-go/internals/console"
 	"ilo-fans-controller-go/internals/models"
+	"ilo-fans-controller-go/internals/services/advancedprofiles"
 	"ilo-fans-controller-go/internals/services/ilo"
 	"ilo-fans-controller-go/internals/services/presets"
 )
 
 type Handler struct {
-	cfg           config.Config
-	hub           *console.Hub
-	iloService    ilo.Service
-	presetService presets.Service
+	cfg                    config.Config
+	hub                    *console.Hub
+	iloService             ilo.Service
+	presetService          presets.Service
+	advancedProfileService advancedprofiles.Service
 }
 
-func New(cfg config.Config, hub *console.Hub, iloService ilo.Service, presetService presets.Service) *Handler {
+func New(cfg config.Config, hub *console.Hub, iloService ilo.Service, presetService presets.Service, advancedProfileService advancedprofiles.Service) *Handler {
 	return &Handler{
-		cfg:           cfg,
-		hub:           hub,
-		iloService:    iloService,
-		presetService: presetService,
+		cfg:                    cfg,
+		hub:                    hub,
+		iloService:             iloService,
+		presetService:          presetService,
+		advancedProfileService: advancedProfileService,
 	}
 }
 
@@ -42,6 +46,7 @@ func (h *Handler) GetIndex(c *fiber.Ctx) error {
 	fans := []models.Fan{}
 	temperatures := []models.Temperature{}
 	presets := []models.Preset{}
+	advancedProfiles := []models.AdvancedProfile{}
 
 	if h.cfg.HasILOConfig() {
 		loadedFans, err := h.iloService.GetFans(c.UserContext())
@@ -81,13 +86,24 @@ func (h *Handler) GetIndex(c *fiber.Ctx) error {
 		presets = loadedPresets
 	}
 
+	loadedAdvancedProfiles, err := h.advancedProfileService.List(c.UserContext())
+	if err != nil {
+		log.Printf("unable to fetch advanced profiles for page render: %v", err)
+		if status == nil {
+			status = &models.StatusMessage{Type: "error", Message: "Unable to load advanced profiles from Postgres."}
+		}
+	} else {
+		advancedProfiles = loadedAdvancedProfiles
+	}
+
 	return c.Render("index", fiber.Map{
-		"InitialFansJSON":         mustJSON(fans),
-		"InitialTemperaturesJSON": mustJSON(temperatures),
-		"InitialPresetsJSON":      mustJSON(presets),
-		"InitialStatusJSON":       mustJSON(status),
-		"MinimumFanSpeed":         h.cfg.MinimumFanSpeed,
-		"PageTitle":               "iLO Fans Controller",
+		"InitialFansJSON":             mustJSON(fans),
+		"InitialTemperaturesJSON":     mustJSON(temperatures),
+		"InitialPresetsJSON":          mustJSON(presets),
+		"InitialAdvancedProfilesJSON": mustJSON(advancedProfiles),
+		"InitialStatusJSON":           mustJSON(status),
+		"MinimumFanSpeed":             h.cfg.MinimumFanSpeed,
+		"PageTitle":                   "iLO Fans Controller",
 	})
 }
 
@@ -213,6 +229,82 @@ func (h *Handler) SavePresets(c *fiber.Ctx) error {
 	return c.JSON(savedPresets)
 }
 
+func (h *Handler) GetAdvancedProfiles(c *fiber.Ctx) error {
+	profiles, err := h.advancedProfileService.List(c.UserContext())
+	if err != nil {
+		log.Printf("unable to fetch advanced profiles: %v", err)
+		return writeJSONError(c, fiber.StatusInternalServerError, "Unable to load advanced profiles")
+	}
+
+	return c.JSON(profiles)
+}
+
+func (h *Handler) SaveAdvancedProfiles(c *fiber.Ctx) error {
+	var profiles []models.AdvancedProfile
+	if err := c.BodyParser(&profiles); err != nil {
+		return writeJSONError(c, fiber.StatusBadRequest, "Invalid advanced profiles payload")
+	}
+
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.Name) == "" {
+			return writeJSONError(c, fiber.StatusBadRequest, "Advanced profile name is required")
+		}
+
+		if profile.BuiltIn {
+			return writeJSONError(c, fiber.StatusBadRequest, "Built-in advanced profiles are read-only")
+		}
+
+		if err := ilo.ValidateAdvancedProfile(profile); err != nil {
+			return writeJSONError(c, fiber.StatusBadRequest, err.Error())
+		}
+	}
+
+	savedProfiles, err := h.advancedProfileService.Save(c.UserContext(), profiles)
+	if err != nil {
+		log.Printf("unable to save advanced profiles: %v", err)
+		return writeJSONError(c, fiber.StatusInternalServerError, "Unable to save advanced profiles")
+	}
+
+	return c.JSON(savedProfiles)
+}
+
+func (h *Handler) ApplyAdvancedProfile(c *fiber.Ctx) error {
+	if !h.cfg.HasILOConfig() {
+		return writeJSONError(c, fiber.StatusBadRequest, "iLO credentials are not configured")
+	}
+
+	var request models.ApplyAdvancedProfileRequest
+	if err := c.BodyParser(&request); err != nil {
+		return writeJSONError(c, fiber.StatusBadRequest, "Invalid JSON payload")
+	}
+
+	if strings.TrimSpace(request.ClientID) == "" {
+		request.ClientID = strings.TrimSpace(c.Get("X-Console-Client-Id"))
+	}
+
+	profile, err := h.advancedProfileService.GetByName(c.UserContext(), strings.TrimSpace(request.ProfileName))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return writeJSONError(c, fiber.StatusBadRequest, "Unknown advanced profile")
+		}
+
+		log.Printf("unable to fetch advanced profile %q: %v", request.ProfileName, err)
+		return writeJSONError(c, fiber.StatusInternalServerError, "Unable to load advanced profile")
+	}
+
+	if err := h.iloService.ApplyAdvancedProfile(c.UserContext(), request, profile); err != nil {
+		log.Printf("unable to apply advanced profile: %v", err)
+		h.hub.Send(request.ClientID, "error", err.Error())
+		if isILOServerOff(err) {
+			c.Set("Retry-After", "5")
+			return writeJSONError(c, fiber.StatusServiceUnavailable, "iLO is unreachable (server completely off). Advanced profile commands were not sent.")
+		}
+		return writeJSONError(c, statusForILOError(err), err.Error())
+	}
+
+	return c.JSON(fiber.Map{"ok": true})
+}
+
 func mustJSON(value any) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -239,7 +331,15 @@ func statusForILOError(err error) int {
 	switch {
 	case strings.Contains(message, "timed out"):
 		return fiber.StatusGatewayTimeout
-	case strings.Contains(message, "unknown fan name"), strings.Contains(message, "speed must be"), strings.Contains(message, "request must include"):
+	case strings.Contains(message, "unknown fan name"),
+		strings.Contains(message, "speed must be"),
+		strings.Contains(message, "request must include"),
+		strings.Contains(message, "confirmation phrase"),
+		strings.Contains(message, "profile name is required"),
+		strings.Contains(message, "fan ids must be"),
+		strings.Contains(message, "fan values must be"),
+		strings.Contains(message, "sensor list cannot be empty"),
+		strings.Contains(message, "sensor ids must be"):
 		return fiber.StatusBadRequest
 	default:
 		return fiber.StatusBadGateway
