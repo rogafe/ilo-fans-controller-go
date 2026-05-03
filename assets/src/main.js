@@ -1,6 +1,4 @@
-import 'htmx.org';
 import Alpine from 'alpinejs';
-import 'flowbite';
 
 window.Alpine = Alpine;
 
@@ -35,7 +33,7 @@ function getAppData() {
     temperatures: [],
     presets: initialPresets,
     advancedProfiles: [],
-    minimumFanSpeed: 15,
+    minimumFanSpeed: 10,
     status: null,
   };
 }
@@ -313,7 +311,7 @@ document.addEventListener('alpine:init', () => {
     isTempGroupOpen(group) {
       if (!group?.key) return true;
       if (this.isTempGroupCollapsed(group.key)) return false;
-      return Boolean(group.hasNonOk);
+      return true;
     },
 
     onTempGroupToggle(key, isOpen) {
@@ -343,12 +341,18 @@ document.addEventListener('alpine:init', () => {
     },
 
     connectConsole() {
+      if (this._wsReconnectTimer) {
+        clearTimeout(this._wsReconnectTimer);
+        this._wsReconnectTimer = null;
+      }
+
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const socketUrl = `${protocol}://${window.location.host}/ws/console?client_id=${encodeURIComponent(this.clientId)}`;
       this.socket = new WebSocket(socketUrl);
 
       this.socket.addEventListener('open', () => {
         this.socketConnected = true;
+        this._wsReconnectDelay = 1000;
       });
 
       this.socket.addEventListener('message', (event) => {
@@ -366,11 +370,22 @@ document.addEventListener('alpine:init', () => {
 
       this.socket.addEventListener('close', () => {
         this.socketConnected = false;
+        this._scheduleWsReconnect();
       });
 
       this.socket.addEventListener('error', () => {
         this.socketConnected = false;
       });
+    },
+
+    _scheduleWsReconnect() {
+      if (this._wsReconnectTimer) return;
+      const delay = this._wsReconnectDelay || 1000;
+      this._wsReconnectDelay = Math.min(delay * 2, 30000);
+      this._wsReconnectTimer = setTimeout(() => {
+        this._wsReconnectTimer = null;
+        this.connectConsole();
+      }, delay);
     },
 
     resetFan(index) {
@@ -666,11 +681,11 @@ document.addEventListener('alpine:init', () => {
       const thresholds = [];
 
       if (temperature.cautionThreshold > 0) {
-        thresholds.push(`Caution ${temperature.cautionThreshold}C`);
+        thresholds.push(`Caution ${temperature.cautionThreshold}°C`);
       }
 
       if (temperature.criticalThreshold > 0) {
-        thresholds.push(`Critical ${temperature.criticalThreshold}C`);
+        thresholds.push(`Critical ${temperature.criticalThreshold}°C`);
       }
 
       if (thresholds.length > 0) {
@@ -679,7 +694,7 @@ document.addEventListener('alpine:init', () => {
 
       if (temperature.threshold > 0) {
         const thresholdType = temperature.thresholdTypeLabel || 'Threshold';
-        return `${thresholdType} ${temperature.threshold}C`;
+        return `${thresholdType} ${temperature.threshold}°C`;
       }
 
       return 'N/A';

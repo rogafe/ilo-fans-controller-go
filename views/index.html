@@ -290,7 +290,7 @@
                                 </div>
                             </div>
                         </template>
-                        <div x-show="fans.length === 0" class="py-8 text-center text-sm text-base-content/40">
+                        <div x-cloak x-show="fans.length === 0" class="py-8 text-center text-sm text-base-content/40">
                             No fans detected.
                         </div>
                     </div>
@@ -362,7 +362,7 @@
                                     Max&nbsp;<span
                                         class="font-semibold"
                                         :class="temperatureSummary().maxTone === 'error' ? 'text-error' : temperatureSummary().maxTone === 'warning' ? 'text-warning' : 'text-success'"
-                                        x-text="`${temperatureSummary().maxTemp}C`"
+                                        x-text="`${temperatureSummary().maxTemp}°C`"
                                     ></span>
                                 </span>
                             </div>
@@ -391,7 +391,7 @@
                         <template x-for="group in groupedTemperatures()" :key="group.key">
                             <details
                                 class="collapse collapse-arrow border border-base-300/50 bg-base-200/40"
-                                :open="isTempGroupOpen(group)"
+                                x-init="$el.open = isTempGroupOpen(group)"
                                 @toggle="onTempGroupToggle(group.key, $event.target.open)"
                             >
                                 <summary class="collapse-title px-4 py-3">
@@ -418,7 +418,7 @@
                                                 Max&nbsp;<span
                                                     class="font-semibold"
                                                     :class="group.maxTone === 'error' ? 'text-error' : group.maxTone === 'warning' ? 'text-warning' : 'text-success'"
-                                                    x-text="`${group.maxTemp}C`"
+                                                    x-text="`${group.maxTemp}°C`"
                                                 ></span>
                                             </span>
                                         </div>
@@ -458,7 +458,7 @@
                                                         <td class="text-right">
                                                             <span class="font-mono font-semibold"
                                                                   :class="temperatureTone(temperature) === 'error' ? 'text-error' : temperatureTone(temperature) === 'warning' ? 'text-warning' : 'text-success'"
-                                                                  x-text="`${temperature.temperature}C`"></span>
+                                                                  x-text="`${temperature.temperature}°C`"></span>
                                                         </td>
                                                         <td class="text-xs text-base-content/70" x-text="formatTemperatureThresholds(temperature)"></td>
                                                     </tr>
@@ -488,7 +488,7 @@
                                                     </div>
                                                     <p class="font-mono text-xl font-bold"
                                                        :class="temperatureTone(temperature) === 'error' ? 'text-error' : temperatureTone(temperature) === 'warning' ? 'text-warning' : 'text-success'"
-                                                       x-text="`${temperature.temperature}C`"></p>
+                                                       x-text="`${temperature.temperature}°C`"></p>
                                                 </div>
                                             </div>
                                         </template>
@@ -498,7 +498,7 @@
                         </template>
                     </div>
 
-                    <div x-show="groupedTemperatures().length === 0" class="py-8 text-center text-sm text-base-content/40">
+                    <div x-cloak x-show="groupedTemperatures().length === 0" class="py-8 text-center text-sm text-base-content/40">
                         No sensors detected.
                     </div>
                 </div>
