@@ -22,4 +22,7 @@ func Register(app *fiber.App, handler *handlers.Handler) {
 	app.Post("/api/fans", handler.SetFans)
 	app.Get("/api/presets", handler.GetPresets)
 	app.Post("/api/presets", handler.SavePresets)
+	app.Get("/api/advanced-profiles", handler.GetAdvancedProfiles)
+	app.Post("/api/advanced-profiles", handler.SaveAdvancedProfiles)
+	app.Post("/api/advanced-profiles/apply", handler.ApplyAdvancedProfile)
 }

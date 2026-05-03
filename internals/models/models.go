@@ -35,6 +35,37 @@ type Preset struct {
 	Speeds []int  `json:"speeds"`
 }
 
+type AdvancedProfile struct {
+	Name          string                `json:"name"`
+	CommandBundle AdvancedCommandBundle `json:"commandBundle"`
+	Warning       string                `json:"warning"`
+	BuiltIn       bool                  `json:"builtIn"`
+}
+
+type AdvancedCommandBundle struct {
+	FanMinimums     []FanBoundCommand `json:"fanMinimums"`
+	FanMaximums     []FanBoundCommand `json:"fanMaximums"`
+	PIDLows         []PIDCommand      `json:"pidLows"`
+	PIDHighs        []PIDCommand      `json:"pidHighs"`
+	OCSD            []OCSDCommand     `json:"ocsd"`
+	DisabledSensors []int             `json:"disabledSensors"`
+}
+
+type FanBoundCommand struct {
+	Fan   int `json:"fan"`
+	Value int `json:"value"`
+}
+
+type PIDCommand struct {
+	Sensors []int `json:"sensors"`
+	Value   int   `json:"value"`
+}
+
+type OCSDCommand struct {
+	Sensors []int `json:"sensors"`
+	Value   int   `json:"value"`
+}
+
 type PresetRecord struct {
 	ID        uint      `gorm:"primaryKey"`
 	Name      string    `gorm:"not null"`
@@ -43,10 +74,26 @@ type PresetRecord struct {
 	UpdatedAt time.Time `json:"-"`
 }
 
+type AdvancedProfileRecord struct {
+	ID            uint                  `gorm:"primaryKey"`
+	Name          string                `gorm:"not null;uniqueIndex"`
+	Warning       string                `gorm:"not null"`
+	BuiltIn       bool                  `gorm:"not null;default:false"`
+	CommandBundle AdvancedCommandBundle `gorm:"type:jsonb;serializer:json;not null"`
+	CreatedAt     time.Time             `json:"-"`
+	UpdatedAt     time.Time             `json:"-"`
+}
+
 type SetFansRequest struct {
 	ClientID string         `json:"clientId"`
 	Speed    *int           `json:"speed"`
 	Fans     map[string]int `json:"fans"`
+}
+
+type ApplyAdvancedProfileRequest struct {
+	ClientID     string `json:"clientId"`
+	ProfileName  string `json:"profileName"`
+	Confirmation string `json:"confirmation"`
 }
 
 type StatusMessage struct {

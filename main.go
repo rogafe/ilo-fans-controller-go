@@ -19,6 +19,7 @@ import (
 	"ilo-fans-controller-go/internals/database"
 	"ilo-fans-controller-go/internals/handlers"
 	"ilo-fans-controller-go/internals/router"
+	"ilo-fans-controller-go/internals/services/advancedprofiles"
 	"ilo-fans-controller-go/internals/services/ilo"
 	"ilo-fans-controller-go/internals/services/presets"
 )
@@ -64,9 +65,13 @@ func main() {
 	if err := presetService.EnsureDefaults(context.Background()); err != nil {
 		log.Fatal(err)
 	}
+	advancedProfileService := advancedprofiles.New(db)
+	if err := advancedProfileService.EnsureDefaults(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 
 	hub := console.NewHub()
-	handler := handlers.New(cfg, hub, ilo.New(cfg, hub), presetService)
+	handler := handlers.New(cfg, hub, ilo.New(cfg, hub), presetService, advancedProfileService)
 
 	app := fiber.New(fiber.Config{
 		Views:       engine,
