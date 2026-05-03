@@ -18,7 +18,7 @@ RUN pnpm run build:css
 RUN pnpm run build:js
 
 # Stage 2: Build Go application
-FROM golang:1.24-alpine AS backend
+FROM golang:1.26-alpine AS backend
 WORKDIR /app
 
 # Install build dependencies
