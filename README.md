@@ -239,6 +239,26 @@ docker compose -f docker/docker-compose.yml --env-file docker/.env up -d --build
 ```
 
 
+## GHCR Images
+
+Docker images are published to GitHub Container Registry (GHCR):
+
+- `ghcr.io/rogafe/ilo-fans-controller-go:latest`
+- `ghcr.io/rogafe/ilo-fans-controller-go:vX.Y.Z` (for release tags like `v0.1.0`)
+
+Publish triggers:
+
+- Push to `master` -> publishes `:latest`
+- Push tag matching `v*` -> publishes `:<tag>` and `:latest`
+- Manual workflow dispatch -> publishes `:<input-tag>` (default: `develop`)
+
+Pull examples:
+
+```bash
+docker pull ghcr.io/rogafe/ilo-fans-controller-go:latest
+docker pull ghcr.io/rogafe/ilo-fans-controller-go:v0.1.0
+```
+
 ## Running Tests
 
 Run all tests:
