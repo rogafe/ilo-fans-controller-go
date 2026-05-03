@@ -2,6 +2,7 @@ package ilo
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -235,14 +236,20 @@ func aggressiveProfileFixture() models.AdvancedProfile {
 	return profile
 }
 
-func TestBuildCommandsPinsMinAndMaxToSamePWM(t *testing.T) {
+func TestBuildCommandsUsePHPOrderAndMin255(t *testing.T) {
 	t.Parallel()
 
-	fans := []models.Fan{{Name: "Fan 1", Speed: 50, CommandNumber: 1}}
-	targets := map[string]int{"Fan 1": 15}
+	fans := []models.Fan{
+		{Name: "Fan 1", Speed: 50, CommandNumber: 0},
+		{Name: "Fan 2", Speed: 50, CommandNumber: 1},
+	}
+	targets := map[string]int{"Fan 1": 15, "Fan 2": 15}
 
 	commands := buildCommands(fans, targets)
-	want := []string{"fan p 1 min 39", "fan p 1 max 39"}
+	want := []string{
+		"fan p 1 max 39", "fan p 1 min 255",
+		"fan p 0 max 39", "fan p 0 min 255",
+	}
 	if len(commands) != len(want) {
 		t.Fatalf("len(commands) = %d, want %d: %v", len(commands), len(want), commands)
 	}
@@ -250,6 +257,70 @@ func TestBuildCommandsPinsMinAndMaxToSamePWM(t *testing.T) {
 		if commands[i] != want[i] {
 			t.Fatalf("commands[%d] = %q, want %q", i, commands[i], want[i])
 		}
+	}
+}
+
+func TestBuildCommandsForOutOfTolerance(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		fans    []models.Fan
+		targets map[string]int
+		tol     int
+		want    []string
+	}{
+		{
+			name: "only mismatching fan",
+			fans: []models.Fan{
+				{Name: "Fan 1", Speed: 30, CommandNumber: 0},
+				{Name: "Fan 2", Speed: 15, CommandNumber: 1},
+			},
+			targets: map[string]int{"Fan 1": 15, "Fan 2": 15},
+			tol:     2,
+			want: []string{
+				"fan p 0 max 39", "fan p 0 min 255",
+			},
+		},
+		{
+			name: "within tolerance empty",
+			fans: []models.Fan{
+				{Name: "Fan 1", Speed: 16, CommandNumber: 0},
+			},
+			targets: map[string]int{"Fan 1": 15},
+			tol:     2,
+			want:    nil,
+		},
+		{
+			name: "descending order two fans",
+			fans: []models.Fan{
+				{Name: "Fan 1", Speed: 40, CommandNumber: 0},
+				{Name: "Fan 2", Speed: 40, CommandNumber: 1},
+			},
+			targets: map[string]int{"Fan 1": 15, "Fan 2": 15},
+			tol:     2,
+			want: []string{
+				"fan p 1 max 39", "fan p 1 min 255",
+				"fan p 0 max 39", "fan p 0 min 255",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := buildCommandsForOutOfTolerance(tc.fans, tc.targets, tc.tol)
+			if len(got) != len(tc.want) {
+				t.Fatalf("len = %d, want %d: %v", len(got), len(tc.want), got)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("commands[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
 	}
 }
 
@@ -272,4 +343,128 @@ func TestFansMatchTargetsWithinTolerance(t *testing.T) {
 
 func zeroConfig() config.Config {
 	return config.Config{}
+}
+
+func TestFanSlotPresent(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		state string
+		want  bool
+	}{
+		{"Absent", false},
+		{"absent", false},
+		{"  Absent  ", false},
+		{"UnavailableOffline", false},
+		{"unavailableoffline", false},
+		{"Disabled", false},
+		{"Enabled", true},
+		{"", true},
+	}
+
+	for _, tc := range cases {
+		if got := fanSlotPresent(tc.state); got != tc.want {
+			t.Fatalf("fanSlotPresent(%q) = %v, want %v", tc.state, got, tc.want)
+		}
+	}
+}
+
+func TestFansFromThermalResponse_OrdinalIgnoresMemberID(t *testing.T) {
+	t.Parallel()
+
+	const raw = `{"Fans":[
+		{"FanName":"Fan A","MemberId":"99","CurrentReading":10,"Status":{"State":"Enabled"}},
+		{"FanName":"Fan B","MemberId":"5","CurrentReading":20,"Status":{"State":"Enabled"}},
+		{"FanName":"Fan C","MemberId":"1","CurrentReading":30,"Status":{"State":"Enabled"}}
+	]}`
+
+	var thermal thermalResponse
+	if err := json.Unmarshal([]byte(raw), &thermal); err != nil {
+		t.Fatal(err)
+	}
+
+	got := fansFromThermalResponse(thermal)
+	want := []models.Fan{
+		{Name: "Fan A", Speed: 10, CommandNumber: 0},
+		{Name: "Fan B", Speed: 20, CommandNumber: 1},
+		{Name: "Fan C", Speed: 30, CommandNumber: 2},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i].Name != want[i].Name || got[i].Speed != want[i].Speed || got[i].CommandNumber != want[i].CommandNumber {
+			t.Fatalf("fans[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestFansFromThermalResponse_FiltersStatesPreserveFullSlotOrdinals(t *testing.T) {
+	t.Parallel()
+
+	const raw = `{"Fans":[
+		{"FanName":"AbsentSlot","MemberId":"1","CurrentReading":0,"Status":{"State":"Absent"}},
+		{"FanName":"OfflineSlot","MemberId":"2","CurrentReading":0,"Status":{"State":"UnavailableOffline"}},
+		{"FanName":"DisabledSlot","MemberId":"3","CurrentReading":0,"Status":{"State":"Disabled"}},
+		{"FanName":"Fan 1","MemberId":"9","CurrentReading":40,"Status":{"State":"Enabled"}},
+		{"FanName":"Fan 2","MemberId":"8","CurrentReading":50,"Status":{"State":"Enabled"}}
+	]}`
+
+	var thermal thermalResponse
+	if err := json.Unmarshal([]byte(raw), &thermal); err != nil {
+		t.Fatal(err)
+	}
+
+	got := fansFromThermalResponse(thermal)
+	want := []models.Fan{
+		{Name: "Fan 1", Speed: 40, CommandNumber: 3},
+		{Name: "Fan 2", Speed: 50, CommandNumber: 4},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("fans[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestFansFromThermalResponse_FirstInstalledFansMapToZeroBasedSlots(t *testing.T) {
+	t.Parallel()
+
+	const raw = `{"Fans":[
+		{"FanName":"Fan 1","MemberId":"11","CurrentReading":10,"Status":{"State":"Enabled"}},
+		{"FanName":"Fan 2","MemberId":"12","CurrentReading":20,"Status":{"State":"Enabled"}},
+		{"FanName":"Fan 3","MemberId":"13","CurrentReading":30,"Status":{"State":"Enabled"}},
+		{"FanName":"Fan 4","MemberId":"14","CurrentReading":40,"Status":{"State":"Enabled"}},
+		{"FanName":"Fan 5","MemberId":"15","CurrentReading":0,"Status":{"State":"Absent"}},
+		{"FanName":"Fan 6","MemberId":"16","CurrentReading":0,"Status":{"State":"Absent"}},
+		{"FanName":"Fan 7","MemberId":"17","CurrentReading":0,"Status":{"State":"Absent"}},
+		{"FanName":"Fan 8","MemberId":"18","CurrentReading":0,"Status":{"State":"Absent"}}
+	]}`
+
+	var thermal thermalResponse
+	if err := json.Unmarshal([]byte(raw), &thermal); err != nil {
+		t.Fatal(err)
+	}
+
+	got := fansFromThermalResponse(thermal)
+	want := []models.Fan{
+		{Name: "Fan 1", Speed: 10, CommandNumber: 0},
+		{Name: "Fan 2", Speed: 20, CommandNumber: 1},
+		{Name: "Fan 3", Speed: 30, CommandNumber: 2},
+		{Name: "Fan 4", Speed: 40, CommandNumber: 3},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("fans[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
 }

@@ -734,8 +734,8 @@ document.addEventListener('alpine:init', () => {
 
         const fanIndex = Number.isInteger(fan.commandNumber) ? fan.commandNumber : index + 1;
         return [
-          `fan p ${fanIndex} min ${percentageToILOValue(fan.speed)}`,
-          `fan p ${fanIndex} max 255`,
+          `fan p ${fanIndex} max ${percentageToILOValue(fan.speed)}`,
+          `fan p ${fanIndex} min 255`,
         ];
       });
     },
