@@ -203,27 +203,41 @@ task build
 
 ## Quick Start (Docker)
 
-1. Build image:
+The root `docker-compose.yml` is intentionally **development-only** and is used by `task docker:up`.
+
+For self-hosting, use the dedicated stack in `./docker/docker-compose.yml` (which builds from the root `Dockerfile`).
+
+1. Create runtime env file:
 
 ```bash
-docker build -t ilo-fans-controller-go:local .
+cp docker/.env.example docker/.env
 ```
 
-2. Start Postgres dependency:
+2. Edit `docker/.env` with your real iLO and DB credentials.
+
+3. Build and start the self-hosting stack:
 
 ```bash
-docker compose up -d
+docker compose -f docker/docker-compose.yml --env-file docker/.env up -d --build
 ```
 
-3. Run app container:
+4. Open the app:
+
+- `http://<host>:<APP_PORT>`
+
+Useful self-hosting commands:
 
 ```bash
-docker run --rm -p 3000:3000 \
-  --env-file .env \
-  ilo-fans-controller-go:local
+# Stop services
+docker compose -f docker/docker-compose.yml --env-file docker/.env down
+
+# Follow app logs
+docker compose -f docker/docker-compose.yml --env-file docker/.env logs -f app
+
+# Rebuild and update
+docker compose -f docker/docker-compose.yml --env-file docker/.env up -d --build
 ```
 
-The Docker image exposes port `3000` and runs with `ENV=production` by default.
 
 ## Running Tests
 

@@ -1,0 +1,58 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    environment:
+      ENV: production
+      PORT: "3000"
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSLMODE: ${DB_SSLMODE}
+      ILO_HOST: ${ILO_HOST}
+      ILO_USERNAME: ${ILO_USERNAME}
+      ILO_PASSWORD: ${ILO_PASSWORD}
+      ILO_SSH_KEX_ALGORITHMS: ${ILO_SSH_KEX_ALGORITHMS}
+      ILO_SSH_HOST_KEY_ALGORITHMS: ${ILO_SSH_HOST_KEY_ALGORITHMS}
+      ILO_SSH_PUBKEY_ACCEPTED_ALGORITHMS: ${ILO_SSH_PUBKEY_ACCEPTED_ALGORITHMS}
+      ILO_SSH_CIPHERS: ${ILO_SSH_CIPHERS}
+      ILO_SSH_MACS: ${ILO_SSH_MACS}
+      ILO_SNMP_HOST: ${ILO_SNMP_HOST}
+      ILO_SNMP_PORT: ${ILO_SNMP_PORT}
+      ILO_SNMP_COMMUNITY: ${ILO_SNMP_COMMUNITY}
+      ILO_SNMP_VERSION: ${ILO_SNMP_VERSION}
+      ILO_SNMP_TIMEOUT_SECONDS: ${ILO_SNMP_TIMEOUT_SECONDS}
+      ILO_SNMP_RETRIES: ${ILO_SNMP_RETRIES}
+      MINIMUM_FAN_SPEED: ${MINIMUM_FAN_SPEED}
+      FAN_APPLY_TIMEOUT_SECONDS: ${FAN_APPLY_TIMEOUT_SECONDS}
+      FAN_APPLY_TOLERANCE: ${FAN_APPLY_TOLERANCE}
+      ILO_INSECURE_TLS: ${ILO_INSECURE_TLS}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
