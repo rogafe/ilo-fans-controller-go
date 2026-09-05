@@ -16,7 +16,7 @@ importers:
         version: 3.15.11
       daisyui:
         specifier: ^5.0.28
-        version: 5.5.19
+        version: 5.7.28
       tailwindcss:
         specifier: ^4.1.18
         version: 4.2.4
@@ -379,8 +379,8 @@ packages:
   alpinejs@3.15.11:
     resolution: {integrity: sha512-m26gkTg/MId8O+F4jHKK3vB3SjbFxxk/JHP+qzmw1H6aQrZuPAg4CUoAefnASzzp/eNroBjrRQe7950bNeaBJw==}
 
-  daisyui@5.5.19:
-    resolution: {integrity: sha512-pbFAkl1VCEh/MPCeclKL61I/MqRIFFhNU7yiXoDDRapXN4/qNCoMxeCCswyxEEhqL5eiTTfwHvucFtOE71C9sA==}
+  daisyui@5.7.28:
+    resolution: {integrity: sha512-BxQap2QOj7NQy5nEsjTHRmybmUZP3t+O5G6vfdidZuptBsh/QyKN9wbdrGDZk198fMI3UyYnA/rCWlggZIhGnw==}
 
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
@@ -748,7 +748,7 @@ snapshots:
     dependencies:
       '@vue/reactivity': 3.1.5
 
-  daisyui@5.5.19: {}
+  daisyui@5.7.28: {}
 
   detect-libc@2.1.2: {}
 
